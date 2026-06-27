@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= siteName %> — <%= businessName %></title>
+  <meta name="description" content="<%= description %>">
+  <link rel="alternate" type="application/rss+xml" title="<%= siteName %> RSS Feed" href="/site/<%= slug %>/rss.xml">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.7; color: #1a1a2e; background: #f8fafc;
+    }
+    .container { max-width: 860px; margin: 0 auto; padding: 0 20px; }
+    header {
+      background: linear-gradient(135deg, #1e293b, #334155); color: #fff;
+      padding: 48px 0 40px; text-align: center;
+    }
+    header h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 6px; letter-spacing: -0.02em; }
+    header p { font-size: 1rem; opacity: 0.75; }
+    nav {
+      background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 12px 0;
+    }
+    nav .container { display: flex; gap: 24px; justify-content: center; }
+    nav a { color: #475569; text-decoration: none; font-size: 0.9rem; font-weight: 500; }
+    nav a:hover { color: #2563eb; }
+    main { padding: 40px 0 60px; }
+    .post-list { display: flex; flex-direction: column; gap: 28px; }
+    .post-card {
+      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+      padding: 24px 28px; transition: box-shadow 0.2s;
+    }
+    .post-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+    .post-card h2 { font-size: 1.3rem; margin-bottom: 8px; }
+    .post-card h2 a { color: #1e293b; text-decoration: none; }
+    .post-card h2 a:hover { color: #2563eb; }
+    .post-meta { font-size: 0.8rem; color: #94a3b8; margin-bottom: 10px; }
+    .post-excerpt { color: #475569; font-size: 0.95rem; }
+    .section-title {
+      font-size: 1.5rem; font-weight: 700; margin: 40px 0 20px;
+      padding-bottom: 8px; border-bottom: 2px solid #e2e8f0;
+    }
+    footer {
+      background: #1e293b; color: #94a3b8; text-align: center;
+      padding: 32px 0; font-size: 0.85rem;
+    }
+    footer a { color: #60a5fa; text-decoration: none; }
+    .empty-state { text-align: center; padding: 60px 20px; color: #94a3b8; }
+    .empty-state p { font-size: 1.1rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1><%= siteName %></h1>
+      <p><%= tagline %></p>
+    </div>
+  </header>
+
+  <nav>
+    <div class="container">
+      <a href="/site/<%= slug %>">Home</a>
+      <a href="/site/<%= slug %>#blog">Blog</a>
+      <a href="/site/<%= slug %>#newsletters">Newsletters</a>
+      <a href="/site/<%= slug %>/rss.xml">RSS</a>
+    </div>
+  </nav>
+
+  <main>
+    <div class="container">
+      <% if (blogPosts.length > 0) { %>
+        <h2 id="blog" class="section-title">Latest Blog Posts</h2>
+        <div class="post-list">
+          <% blogPosts.forEach(function(post) { %>
+            <article class="post-card">
+              <h2><a href="/site/<%= slug %>/blog/<%= post.slug %>.html"><%= post.title %></a></h2>
+              <div class="post-meta"><%= post.date %></div>
+              <div class="post-excerpt"><%= post.excerpt %></div>
+            </article>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <% if (newsletters.length > 0) { %>
+        <h2 id="newsletters" class="section-title">Newsletter Archive</h2>
+        <div class="post-list">
+          <% newsletters.forEach(function(nl) { %>
+            <article class="post-card">
+              <h2><a href="/site/<%= slug %>/newsletter/<%= nl.slug %>.html"><%= nl.title %></a></h2>
+              <div class="post-meta"><%= nl.date %></div>
+              <div class="post-excerpt"><%= nl.excerpt %></div>
+            </article>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <% if (blogPosts.length === 0 && newsletters.length === 0) { %>
+        <div class="empty-state">
+          <p>No content published yet. Check back soon.</p>
+        </div>
+      <% } %>
+    </div>
+  </main>
+
+  <footer>
+    <div class="container">
+      <p>&copy; <%= year %> <%= businessName %>. All rights reserved.</p>
+      <p style="margin-top:4px"><a href="/site/<%= slug %>/rss.xml">RSS Feed</a> · <a href="/site/<%= slug %>/sitemap.xml">Sitemap</a></p>
+    </div>
+  </footer>
+</body>
+</html>

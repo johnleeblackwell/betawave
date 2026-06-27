@@ -1,0 +1,502 @@
+/**
+ * Discovery Layer routes — client-scoped.
+ *
+ * Mounted at /api/clients/:clientId/discovery
+ *   GET    /verticals                       — verticals for this client
+ *   POST   /verticals                       — create one
+ *   PATCH  /verticals/:vid                  — update
+ *   DELETE /verticals/:vid                  — delete (cascade clears children)
+ *   POST   /verticals/seed                  — seed a curated template
+ *
+ *   GET    /verticals/:vid/organizations    — orgs in vertical
+ *   POST   /verticals/:vid/organizations    — add one
+ *   POST   /verticals/:vid/organizations/bulk — CSV bulk import
+ *   PATCH  /organizations/:id               — update
+ *   DELETE /organizations/:id               — delete
+ *
+ *   GET    /organizations/:id/contacts      — contacts for an org
+ *   POST   /organizations/:id/contacts      — add contact
+ *   POST   /contacts/bulk                   — Leadswift CSV import (matches by domain within this client)
+ *   PATCH  /contacts/:id                    — update
+ *   DELETE /contacts/:id                    — delete
+ *
+ *   GET    /verticals/:vid/prospects        — ranked prospects
+ *   POST   /verticals/:vid/score            — recompute visibility scores ({ run_id })
+ *   POST   /verticals/:vid/promote          — promote bottom quartile to prospects ({ run_id })
+ *   GET    /verticals/:vid/delta            — daily delta
+ *
+ *   PATCH  /prospects/:id                   — update prospect status/notes
+ *
+ *   GET    /llm/test                        — ping configured LLM provider
+ *   POST   /llm/generate                    — manual generate (for UI testing)
+ */
+import { Router } from 'express'
+import crypto from 'node:crypto'
+import db from '../db.js'
+import {
+  computeVerticalVisibility,
+  promoteProspectsForVertical,
+  computeDailyDelta,
+} from '../services/discovery-visibility.js'
+import { generate, ping } from '../services/llm.js'
+
+const router = Router({ mergeParams: true })
+
+// ─── Vertical templates (curated seeds users can adopt for a client) ─────────
+const VERTICAL_TEMPLATES: Record<string, Array<{ slug: string; name: string; description: string }>> = {
+  'local-services': [
+    { slug: 'home-improvements', name: 'Home Improvements',
+      description: 'Multi-unit home improvement retailers — glazing, flooring, kitchens, bathrooms, furniture. 3+ physical locations.' },
+    { slug: 'skilled-trades', name: 'Skilled Trades',
+      description: 'Multi-branch trade contractors and trade-adjacent retail — plumbing, electrical, HVAC, roofing, builders\' merchants, tool hire.' },
+    { slug: 'beauty-wellness', name: 'Beauty & Wellness',
+      description: 'Multi-unit beauty and wellness operators — hair salons, beauty/aesthetic clinics, spas, nail bars, massage/physio chains.' },
+  ],
+  'professional-services': [
+    { slug: 'legal', name: 'Legal — Solicitors & Law Firms',
+      description: 'Multi-office solicitors and law firms — conveyancing, family, personal injury, commercial, and private-client practices.' },
+    { slug: 'accountancy', name: 'Accountancy & Bookkeeping',
+      description: 'Accountancy practices and bookkeeping firms serving SMEs — tax, payroll, advisory, and compliance services.' },
+    { slug: 'healthcare', name: 'Private Healthcare & Dental',
+      description: 'Private dental groups, GP practices, physiotherapy, and aesthetic/medical clinics with multiple locations.' },
+    { slug: 'property', name: 'Estate & Letting Agents',
+      description: 'Multi-branch estate and letting agents — residential sales, lettings, property management, and developers.' },
+  ],
+}
+
+// ─── Verticals ────────────────────────────────────────────────────────────────
+router.get('/verticals', (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const verticals = db.prepare(`
+    SELECT v.*,
+      (SELECT COUNT(*) FROM dl_organizations WHERE vertical_id = v.id AND status = 'active') AS org_count,
+      (SELECT COUNT(*) FROM dl_prospects     WHERE vertical_id = v.id) AS prospect_count
+    FROM verticals v
+    WHERE v.client_id = ? AND v.status = 'active'
+    ORDER BY v.created_at
+  `).all(clientId)
+  res.json(verticals)
+})
+
+router.post('/verticals', (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const { slug, name, description = '', multi_unit_min_locations = 3 } = req.body
+  if (!name?.trim() || !slug?.trim()) return res.status(400).json({ error: 'slug + name required' })
+
+  // Slug must be unique per client
+  const exists = db.prepare(`SELECT 1 FROM verticals WHERE client_id = ? AND slug = ?`).get(clientId, slug)
+  if (exists) return res.status(409).json({ error: 'slug already exists for this client' })
+
+  const id = crypto.randomUUID()
+  db.prepare(`
+    INSERT INTO verticals (id, client_id, slug, name, description, multi_unit_min_locations)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, clientId, slug.trim(), name.trim(), description, Number(multi_unit_min_locations) || 3)
+  res.json(db.prepare(`SELECT * FROM verticals WHERE id = ?`).get(id))
+})
+
+router.patch('/verticals/:vid', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT * FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+
+  const fields = ['name', 'description', 'multi_unit_min_locations', 'status']
+  const updates: string[] = []
+  const values: any[] = []
+  for (const f of fields) {
+    if (req.body[f] !== undefined) {
+      updates.push(`${f} = ?`)
+      values.push(req.body[f])
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' })
+  values.push(vid)
+  db.prepare(`UPDATE verticals SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+  res.json(db.prepare(`SELECT * FROM verticals WHERE id = ?`).get(vid))
+})
+
+router.delete('/verticals/:vid', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  // Verify ownership before deleting
+  const v = db.prepare(`SELECT id FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+  // Manually cascade since we can't rely on FK from a TEXT column we just added
+  db.exec('BEGIN')
+  try {
+    db.prepare(`DELETE FROM dl_visibility_scores WHERE vertical_id = ?`).run(vid)
+    db.prepare(`DELETE FROM dl_prospects         WHERE vertical_id = ?`).run(vid)
+    db.prepare(`DELETE FROM dl_organizations     WHERE vertical_id = ?`).run(vid)
+    db.prepare(`DELETE FROM verticals            WHERE id = ?`).run(vid)
+    db.exec('COMMIT')
+  } catch (e: any) {
+    db.exec('ROLLBACK')
+    return res.status(500).json({ error: e.message })
+  }
+  res.json({ ok: true })
+})
+
+/**
+ * POST /verticals/seed   { template: 'local-services' | 'professional-services' }
+ * Idempotent: skips slugs that already exist for this client.
+ */
+router.post('/verticals/seed', (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const { template } = req.body as { template: string }
+  const seeds = VERTICAL_TEMPLATES[template]
+  if (!seeds) return res.status(400).json({ error: 'unknown template', available: Object.keys(VERTICAL_TEMPLATES) })
+
+  const existsStmt = db.prepare(`SELECT 1 FROM verticals WHERE client_id = ? AND slug = ?`)
+  const insert = db.prepare(`
+    INSERT INTO verticals (id, client_id, slug, name, description, multi_unit_min_locations)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+  let inserted = 0
+  let skipped = 0
+  for (const s of seeds) {
+    if (existsStmt.get(clientId, s.slug)) { skipped++; continue }
+    insert.run(crypto.randomUUID(), clientId, s.slug, s.name, s.description, 3)
+    inserted++
+  }
+  res.json({ inserted, skipped, template })
+})
+
+// ─── Organizations ────────────────────────────────────────────────────────────
+router.get('/verticals/:vid/organizations', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const orgs = db.prepare(`
+    SELECT o.*,
+      (SELECT COUNT(*) FROM dl_contacts WHERE organization_id = o.id AND status = 'active') AS contact_count
+    FROM dl_organizations o
+    WHERE o.vertical_id = ? AND o.client_id = ?
+    ORDER BY o.name
+  `).all(vid, clientId)
+  res.json(orgs)
+})
+
+router.post('/verticals/:vid/organizations', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+
+  const { name, website = '', domain = '', location_count = 0, hq_location = '', hq_postcode = '', companies_house_number = '', sub_segment = '', notes = '' } = req.body
+  if (!name?.trim()) return res.status(400).json({ error: 'name required' })
+
+  const id = crypto.randomUUID()
+  let cleanDomain = (domain || '').toLowerCase().trim()
+  if (!cleanDomain && website) {
+    try { cleanDomain = new URL(website.startsWith('http') ? website : `https://${website}`).hostname.replace(/^www\./, '').toLowerCase() }
+    catch { /* malformed */ }
+  }
+
+  db.prepare(`
+    INSERT INTO dl_organizations
+      (id, client_id, vertical_id, name, website, domain, location_count, hq_location,
+       hq_postcode, companies_house_number, sub_segment, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, clientId, vid, name.trim(), website, cleanDomain, Number(location_count) || 0,
+         hq_location, hq_postcode, companies_house_number, sub_segment, notes)
+
+  res.json(db.prepare(`SELECT * FROM dl_organizations WHERE id = ?`).get(id))
+})
+
+router.post('/verticals/:vid/organizations/bulk', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+
+  const { rows } = req.body as { rows: any[] }
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows[] required' })
+
+  // Dedup by (client_id, domain) so the same domain can be re-imported into another client
+  const exists = db.prepare(`SELECT 1 FROM dl_organizations WHERE client_id = ? AND domain = ?`)
+  const insert = db.prepare(`
+    INSERT INTO dl_organizations
+      (id, client_id, vertical_id, name, website, domain, location_count, hq_location,
+       hq_postcode, companies_house_number, sub_segment, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+
+  let inserted = 0
+  let skipped = 0
+  db.exec('BEGIN')
+  try {
+    for (const r of rows) {
+      if (!r.name?.trim()) { skipped++; continue }
+      let domain = (r.domain || '').toLowerCase().trim()
+      if (!domain && r.website) {
+        try {
+          domain = new URL(r.website.startsWith('http') ? r.website : `https://${r.website}`).hostname.replace(/^www\./, '').toLowerCase()
+        } catch { /* malformed */ }
+      }
+      if (domain && exists.get(clientId, domain)) { skipped++; continue }
+
+      insert.run(
+        crypto.randomUUID(),
+        clientId,
+        vid,
+        r.name.trim(),
+        r.website || '',
+        domain,
+        Number(r.location_count) || 0,
+        r.hq_location || '',
+        r.hq_postcode || '',
+        r.companies_house_number || '',
+        r.sub_segment || '',
+        r.notes || '',
+      )
+      inserted++
+    }
+    db.exec('COMMIT')
+  } catch (e: any) {
+    db.exec('ROLLBACK')
+    return res.status(500).json({ error: e.message })
+  }
+
+  res.json({ inserted, skipped, total: rows.length })
+})
+
+router.patch('/organizations/:id', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const o = db.prepare(`SELECT 1 FROM dl_organizations WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!o) return res.status(404).json({ error: 'Organisation not found' })
+
+  const fields = ['name', 'website', 'domain', 'location_count', 'hq_location',
+                  'hq_postcode', 'companies_house_number', 'sub_segment', 'status', 'notes']
+  const updates: string[] = []
+  const values: any[] = []
+  for (const f of fields) {
+    if (req.body[f] !== undefined) {
+      updates.push(`${f} = ?`)
+      values.push(req.body[f])
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' })
+  values.push(id)
+  db.prepare(`UPDATE dl_organizations SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+  res.json(db.prepare(`SELECT * FROM dl_organizations WHERE id = ?`).get(id))
+})
+
+router.delete('/organizations/:id', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  db.prepare(`DELETE FROM dl_organizations WHERE id = ? AND client_id = ?`).run(id, clientId)
+  res.json({ ok: true })
+})
+
+// ─── Contacts ────────────────────────────────────────────────────────────────
+router.get('/organizations/:id/contacts', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  // Verify org belongs to client
+  const o = db.prepare(`SELECT 1 FROM dl_organizations WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!o) return res.status(404).json({ error: 'Organisation not found' })
+
+  const contacts = db.prepare(`
+    SELECT * FROM dl_contacts WHERE organization_id = ? ORDER BY full_name
+  `).all(id)
+  res.json(contacts)
+})
+
+router.post('/organizations/:id/contacts', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const o = db.prepare(`SELECT 1 FROM dl_organizations WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!o) return res.status(404).json({ error: 'Organisation not found' })
+
+  const { full_name, role = '', email = '', linkedin_url = '', source = 'manual', source_confidence = 50 } = req.body
+  if (!full_name?.trim()) return res.status(400).json({ error: 'full_name required' })
+
+  const cid = crypto.randomUUID()
+  db.prepare(`
+    INSERT INTO dl_contacts
+      (id, organization_id, full_name, role, email, linkedin_url, source, source_confidence)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(cid, id, full_name.trim(), role, (email || '').toLowerCase().trim(),
+         linkedin_url, source, Number(source_confidence) || 50)
+
+  res.json(db.prepare(`SELECT * FROM dl_contacts WHERE id = ?`).get(cid))
+})
+
+router.post('/contacts/bulk', (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const { rows } = req.body as { rows: any[] }
+  if (!Array.isArray(rows)) return res.status(400).json({ error: 'rows[] required' })
+
+  // Domain match scoped to THIS client's orgs (never global — one client must not see another's orgs)
+  const findByDomain = db.prepare(`
+    SELECT id FROM dl_organizations WHERE client_id = ? AND LOWER(domain) = ? LIMIT 1
+  `)
+  const findById = db.prepare(`
+    SELECT id FROM dl_organizations WHERE id = ? AND client_id = ?
+  `)
+  const existsContact = db.prepare(`
+    SELECT 1 FROM dl_contacts WHERE organization_id = ? AND LOWER(email) = ? LIMIT 1
+  `)
+  const insert = db.prepare(`
+    INSERT INTO dl_contacts
+      (id, organization_id, full_name, role, email, linkedin_url, source, source_confidence)
+    VALUES (?, ?, ?, ?, ?, ?, 'leadswift', ?)
+  `)
+
+  let inserted = 0
+  let skipped = 0
+  let no_org_match = 0
+  db.exec('BEGIN')
+  try {
+    for (const r of rows) {
+      if (!r.full_name?.trim()) { skipped++; continue }
+
+      let orgId: string | null = null
+      if (r.organization_id && findById.get(r.organization_id, clientId)) {
+        orgId = r.organization_id
+      } else if (r.organization_domain) {
+        const found = findByDomain.get(clientId, (r.organization_domain || '').toLowerCase().trim()) as any
+        if (found) orgId = found.id
+      }
+
+      if (!orgId) { no_org_match++; continue }
+
+      const email = (r.email || '').toLowerCase().trim()
+      if (email && existsContact.get(orgId, email)) { skipped++; continue }
+
+      insert.run(
+        crypto.randomUUID(),
+        orgId,
+        r.full_name.trim(),
+        r.role || '',
+        email,
+        r.linkedin_url || '',
+        Number(r.source_confidence) || 75,
+      )
+      inserted++
+    }
+    db.exec('COMMIT')
+  } catch (e: any) {
+    db.exec('ROLLBACK')
+    return res.status(500).json({ error: e.message })
+  }
+
+  res.json({ inserted, skipped, no_org_match, total: rows.length })
+})
+
+router.patch('/contacts/:id', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  // Verify the contact's org belongs to this client
+  const ok = db.prepare(`
+    SELECT 1 FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId)
+  if (!ok) return res.status(404).json({ error: 'Contact not found' })
+
+  const fields = ['full_name', 'role', 'email', 'linkedin_url', 'status']
+  const updates: string[] = []
+  const values: any[] = []
+  for (const f of fields) {
+    if (req.body[f] !== undefined) {
+      updates.push(`${f} = ?`)
+      values.push(req.body[f])
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' })
+  values.push(id)
+  db.prepare(`UPDATE dl_contacts SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+  res.json(db.prepare(`SELECT * FROM dl_contacts WHERE id = ?`).get(id))
+})
+
+router.delete('/contacts/:id', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const ok = db.prepare(`
+    SELECT 1 FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId)
+  if (!ok) return res.status(404).json({ error: 'Contact not found' })
+
+  db.prepare(`DELETE FROM dl_contacts WHERE id = ?`).run(id)
+  res.json({ ok: true })
+})
+
+// ─── Prospects + Visibility ──────────────────────────────────────────────────
+router.get('/verticals/:vid/prospects', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const prospects = db.prepare(`
+    SELECT p.*,
+      o.name AS org_name, o.domain, o.website, o.location_count,
+      (SELECT COUNT(*) FROM dl_contacts WHERE organization_id = o.id AND status = 'active') AS contact_count
+    FROM dl_prospects p
+    JOIN dl_organizations o ON o.id = p.organization_id
+    WHERE p.vertical_id = ? AND p.client_id = ?
+    ORDER BY p.visibility_score ASC, p.rank ASC
+  `).all(vid, clientId)
+  res.json(prospects)
+})
+
+router.post('/verticals/:vid/score', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+  const { run_id } = req.body
+  if (!run_id) return res.status(400).json({ error: 'run_id required' })
+  const result = computeVerticalVisibility(clientId, vid, run_id)
+  res.json({ scored: result.length, top: result.slice(0, 25) })
+})
+
+router.post('/verticals/:vid/promote', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+  const { run_id } = req.body
+  if (!run_id) return res.status(400).json({ error: 'run_id required' })
+  const result = promoteProspectsForVertical(clientId, vid, run_id)
+  res.json(result)
+})
+
+router.get('/verticals/:vid/delta', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+  res.json(computeDailyDelta(clientId, vid))
+})
+
+router.patch('/prospects/:id', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const ok = db.prepare(`SELECT 1 FROM dl_prospects WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!ok) return res.status(404).json({ error: 'Prospect not found' })
+
+  const fields = ['status', 'notes', 'approved_at', 'sent_at', 'hot_at', 'won_at', 'lost_at']
+  const updates: string[] = []
+  const values: any[] = []
+  for (const f of fields) {
+    if (req.body[f] !== undefined) {
+      updates.push(`${f} = ?`)
+      values.push(req.body[f])
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'no fields to update' })
+  values.push(id)
+  db.prepare(`UPDATE dl_prospects SET ${updates.join(', ')} WHERE id = ?`).run(...values)
+  res.json(db.prepare(`SELECT * FROM dl_prospects WHERE id = ?`).get(id))
+})
+
+// ─── LLM provider testing ───────────────────────────────────────────────────
+router.get('/llm/test', async (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(clientId) as any
+  if (!client) return res.status(404).json({ error: 'Client not found' })
+  const result = await ping(client)
+  res.json(result)
+})
+
+router.post('/llm/generate', async (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(clientId) as any
+  if (!client) return res.status(404).json({ error: 'Client not found' })
+  try {
+    const { prompt, system, max_tokens, temperature } = req.body
+    if (!prompt) return res.status(400).json({ error: 'prompt required' })
+    const result = await generate(client, { prompt, system, max_tokens, temperature })
+    res.json(result)
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+export default router

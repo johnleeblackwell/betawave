@@ -1,0 +1,164 @@
+import { v4 as uuid } from 'uuid'
+import db from '../db.js'
+import { buildBlogPrompt, streamGenerate } from './claude.js'
+import { fetchRSSItems } from './rss.js'
+import { extractImageQuery, extractTitle } from './content-utils.js'
+import { renderColonySite, slugify } from './htmlSite.js'
+import { uploadColonySite, type UploadResult } from './arweave.js'
+
+interface ColonyConfig {
+  id: string
+  name: string
+  businessName: string
+  industry: string
+  expertiseAreas: string[]
+  toneOfVoice: string
+  targetAudience: string
+  styleNotes?: string
+  location?: string
+}
+
+interface SourceRow {
+  type: string
+  url?: string
+  keywords?: string
+}
+
+interface ContentRow {
+  id: string
+  title: string
+  body: string
+  excerpt: string
+  status: string
+}
+
+export interface AgentRunResult {
+  success: boolean
+  colonyId: string
+  postsGenerated: number
+  upload: UploadResult
+  error?: string
+}
+
+/**
+ * Run a single colony agent cycle:
+ *  1. Load colony config + sources
+ *  2. Fetch RSS items for each feed source
+ *  3. Generate a fresh blog post via Claude
+ *  4. Save to DB
+ *  5. Render full colony site to static HTML
+ *  6. Upload (Arweave or local)
+ */
+export async function runAgent(clientId: string): Promise<AgentRunResult> {
+  const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId) as any
+  if (!client) return { success: false, colonyId: clientId, postsGenerated: 0, upload: { success: false, error: 'Client not found' }, error: 'Client not found' }
+
+  const colony: ColonyConfig = {
+    id: clientId,
+    name: client.business_name || client.name,
+    businessName: client.business_name,
+    industry: client.industry || 'general',
+    expertiseAreas: JSON.parse(client.expertise_areas || '[]'),
+    toneOfVoice: client.tone_of_voice || 'professional',
+    targetAudience: client.target_audience || '',
+    styleNotes: client.style_notes,
+    location: client.location,
+  }
+
+  // 1. Gather source material
+  const sources = db.prepare('SELECT * FROM sources WHERE client_id = ? AND active = 1').all(clientId) as unknown as SourceRow[]
+  let sourceMaterial = ''
+  for (const source of sources) {
+    if (source.type === 'rss' && source.url) {
+      try {
+        const items = await fetchRSSItems(source.url)
+        items.slice(0, 5).forEach(item => {
+          sourceMaterial += `\n**${item.title}**\n${(item.content || item.contentSnippet || '').slice(0, 400)}\n`
+        })
+      } catch {
+        // skip failed feeds
+      }
+    } else if (source.type === 'keywords') {
+      const kw = JSON.parse(source.keywords ?? '[]') as string[]
+      if (kw.length) sourceMaterial += `\nKey topics: ${kw.join(', ')}\n`
+    }
+  }
+
+  // 2. Generate content
+  const postsToGenerate = parseInt(process.env.AGENT_POSTS_PER_CYCLE || '1')
+  const generatedIds: string[] = []
+
+  for (let i = 0; i < postsToGenerate; i++) {
+    try {
+      const contentId = uuid()
+      const prompt = buildBlogPrompt({
+        business_name: colony.businessName,
+        industry: colony.industry,
+        expertise_areas: colony.expertiseAreas,
+        tone_of_voice: colony.toneOfVoice,
+        target_audience: colony.targetAudience,
+        style_notes: colony.styleNotes,
+        location: colony.location || undefined,
+      }, sourceMaterial, '')
+
+      let fullContent = ''
+      const stream = streamGenerate(prompt)
+      for await (const text of stream) {
+        fullContent += text
+      }
+
+      const { body: cleanBody, imageQuery } = extractImageQuery(fullContent)
+      const title = extractTitle(cleanBody)
+      const excerpt = cleanBody.replace(/[#*]/g, '').slice(0, 220).trim() + '…'
+
+      db.prepare(`
+        INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query)
+        VALUES (?, ?, 'blog', ?, ?, ?, 'draft', ?)
+      `).run(contentId, clientId, title, cleanBody, excerpt, imageQuery)
+
+      generatedIds.push(contentId)
+    } catch (err) {
+      console.warn(`[colonyAgent] Post ${i} failed:`, (err as Error).message)
+    }
+  }
+
+  // 3. Build static site from all published content
+  const allContent = db.prepare(`
+    SELECT * FROM content WHERE client_id = ? AND (status = 'published' OR status = 'draft')
+    ORDER BY created_at DESC LIMIT 20
+  `).all(clientId) as unknown as ContentRow[]
+
+  if (!allContent.length) {
+    const emptyContent = generatedIds.length
+      ? db.prepare('SELECT * FROM content WHERE client_id = ? ORDER BY created_at DESC LIMIT 1').all(clientId) as unknown as ContentRow[]
+      : []
+    if (emptyContent.length) allContent.push(emptyContent[0])
+  }
+
+  const posts = allContent.map(c => ({
+    title: c.title,
+    body: c.body,
+    excerpt: c.excerpt || c.body.slice(0, 220).trim() + '…',
+    slug: slugify(c.title),
+    date: new Date((c as any).created_at * 1000).toISOString().split('T')[0],
+    type: 'blog' as const,
+  }))
+
+  const files = renderColonySite(posts, {
+    name: colony.businessName,
+    tagline: `${colony.businessName} — a colony on the Metacuum substrate`,
+    bio: `Generated by βWAVE Colony Agent. ${colony.expertiseAreas.join(', ')}.`,
+    tone: colony.toneOfVoice,
+    audience: colony.targetAudience,
+  })
+
+  // 4. Upload
+  const upload = await uploadColonySite(files, clientId)
+
+  return {
+    success: true,
+    colonyId: clientId,
+    postsGenerated: generatedIds.length,
+    upload,
+  }
+}

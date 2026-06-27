@@ -1,0 +1,26 @@
+services:
+  bwave:
+    build: .
+    image: bwave:latest
+    container_name: bwave
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3001}:3001"
+    volumes:
+      # Persistent database — your data never lives inside the container
+      - ./data/data.db:/app/data.db
+      # Persistent backups
+      - ./data/backups:/app/backups
+      # Optional: mount a custom logo / branding assets
+      # - ./public:/app/public
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    # Limit memory — tune up if you enable heavy LLM workloads
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

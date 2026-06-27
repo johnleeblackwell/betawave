@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= post.title %> — <%= siteName %></title>
+  <meta name="description" content="<%= post.excerpt %>">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.7; color: #1a1a2e; background: #f8fafc;
+    }
+    .container { max-width: 720px; margin: 0 auto; padding: 0 20px; }
+    header {
+      background: linear-gradient(135deg, #1e293b, #334155); color: #fff;
+      padding: 32px 0; text-align: center;
+    }
+    header h1 { font-size: 1.6rem; font-weight: 700; }
+    header a { color: #94a3b8; text-decoration: none; font-size: 0.85rem; }
+    header a:hover { color: #60a5fa; }
+    main { padding: 40px 0 60px; }
+    article h1 { font-size: 1.8rem; margin-bottom: 8px; }
+    .meta { color: #94a3b8; font-size: 0.85rem; margin-bottom: 24px; }
+    .content { color: #334155; }
+    .content p { margin-bottom: 16px; }
+    .content h2 { font-size: 1.3rem; margin: 28px 0 12px; }
+    .content h3 { font-size: 1.1rem; margin: 20px 0 8px; }
+    .content ul, .content ol { margin-bottom: 16px; padding-left: 24px; }
+    .content li { margin-bottom: 4px; }
+    .content blockquote {
+      border-left: 3px solid #2563eb; padding: 8px 16px; margin: 16px 0;
+      background: #f1f5f9; color: #475569; font-style: italic;
+    }
+    .content img { max-width: 100%; border-radius: 8px; margin: 16px 0; }
+    .content a { color: #2563eb; }
+    footer {
+      background: #1e293b; color: #94a3b8; text-align: center;
+      padding: 24px 0; font-size: 0.85rem;
+    }
+    footer a { color: #60a5fa; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="container">
+      <a href="/site/<%= slug %>">← Back to <%= siteName %></a>
+    </div>
+  </header>
+  <main>
+    <div class="container">
+      <article>
+        <h1><%= post.title %></h1>
+        <div class="meta"><%= post.date %></div>
+        <div class="content"><%- post.bodyHtml %></div>
+      </article>
+    </div>
+  </main>
+  <footer>
+    <div class="container">
+      <p>&copy; <%= year %> <%= businessName %></p>
+    </div>
+  </footer>
+</body>
+</html>
