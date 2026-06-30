@@ -39,6 +39,7 @@ import { telegramRouter } from './routes/telegram.js'
 import { pseoRouter } from './routes/pseo.js'
 import { consultantRouter } from './routes/consultant.js'
 import waitlistRouter from './routes/waitlist.js'
+import { maybeSeedDemo } from './seedDemo.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
@@ -141,6 +142,7 @@ app.listen(PORT, () => {
   console.log(`\n✅ Betawave / βWave`)
   console.log(`   API: http://localhost:${PORT}/api`)
   loadKeysIntoEnv()   // push any BYO keys from the DB into process.env before services start
+  maybeSeedDemo()     // first-run only: seed the βWave demo client if the DB is empty (SEED_DEMO=false to skip)
   if (!process.env.ANTHROPIC_API_KEY) {
     console.warn(`\n⚠️  ANTHROPIC_API_KEY not set — copy .env.example to .env and add your key\n`)
   }

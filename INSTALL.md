@@ -31,6 +31,8 @@ open http://localhost:3001
 
 Log in with a blank email and the `APP_PASSWORD` you set.
 
+On first boot βWave seeds a **demo client** so you land in a working app, not an empty one — brand voice, a content library, and AI-citation tracking already set up. Explore it, then edit or delete it and add your own business. To start with a clean slate instead, set `SEED_DEMO=false` in `.env`.
+
 ---
 
 ## Choosing an LLM
