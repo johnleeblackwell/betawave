@@ -53,6 +53,7 @@ app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
 // Public endpoints (before authMiddleware)
+app.get('/api/ping', (_req, res) => res.json({ ok: true, service: 'betawave' }))  // Docker HEALTHCHECK
 app.options('/api/waitlist', cors())
 app.use('/api/waitlist', waitlistRouter)
 

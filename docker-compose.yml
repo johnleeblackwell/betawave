@@ -7,10 +7,9 @@ services:
     ports:
       - "${PORT:-3001}:3001"
     volumes:
-      # Persistent database — your data never lives inside the container
-      - ./data/data.db:/app/data.db
-      # Persistent backups
-      - ./data/backups:/app/backups
+      # Persistent data — the SQLite DB lives in ./data and survives rebuilds.
+      # A directory mount (not a file), so Docker creates ./data safely on first run.
+      - ./data:/app/data
       # Optional: mount a custom logo / branding assets
       # - ./public:/app/public
     env_file:

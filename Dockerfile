@@ -32,6 +32,8 @@ VOLUME ["/app/data", "/app/backups"]
 
 ENV PORT=3001
 ENV NODE_ENV=production
+# Keep the SQLite DB inside the mounted /app/data volume so it survives rebuilds
+ENV DATABASE_PATH=/app/data/data.db
 
 EXPOSE 3001
 

@@ -30,6 +30,7 @@
     "react-dom": "^19.2.4",
     "rss-parser": "^3.13.0",
     "stripe": "^22.1.0",
+    "tsx": "^4.7.1",
     "uuid": "^9.0.1",
     "zod": "^3.25.76"
   },
@@ -44,7 +45,6 @@
     "@types/uuid": "^9.0.8",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
-    "tsx": "^4.7.1",
     "typescript": "^5.4.2",
     "vite": "^5.1.6"
   }
