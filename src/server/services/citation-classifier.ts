@@ -153,6 +153,21 @@ export async function runCitationClassifyJob(jobId: string): Promise<void> {
   `).run(finalStatus, classified, failed, JSON.stringify({ classified, failed, run_id }), jobId)
 
   console.log(`[citation-classifier] Job ${jobId} ${finalStatus}: ${classified} classified, ${failed} failed`)
+
+  // Close the loop: draft content targeting any query where the brand was
+  // cited by NO engine this run. Own try/catch — a drafting failure must
+  // never mark a successful classification job as failed.
+  if (finalStatus === 'complete' && classified > 0) {
+    try {
+      const { draftContentForCitationGaps } = await import('./citation-gap-content.js')
+      const { drafted, skipped } = await draftContentForCitationGaps(run_id, brand_id)
+      if (drafted > 0) {
+        console.log(`[citation-classifier] drafted ${drafted} gap-closing post(s) for run ${run_id} (${skipped} already existed)`)
+      }
+    } catch (e: any) {
+      console.error('[citation-classifier] gap-content drafting failed (non-fatal):', e.message)
+    }
+  }
 }
 
 // ─── Classify a single result row ────────────────────────────────────────────
