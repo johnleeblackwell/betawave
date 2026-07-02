@@ -20,7 +20,7 @@ import { sendTelegram } from './telegram.js'
 /** Post to a destination by platform → normalized { id, url }.
  *  `opts.title` is used by long-form mesh destinations (Reddit self-post title, Medium title);
  *  micro-post platforms (X, Telegram) ignore it. */
-async function postToDestination(dest: any, text: string, mediaUrls: string[] = [], opts: { title?: string } = {}): Promise<{ id: string; url: string }> {
+export async function postToDestination(dest: any, text: string, mediaUrls: string[] = [], opts: { title?: string } = {}): Promise<{ id: string; url: string }> {
   if (dest.platform === 'x') {
     const r = await postToX(dest, text, mediaUrls)
     return { id: String(r.id), url: `https://x.com/${dest.handle.replace(/^@/, '')}/status/${r.id}` }
