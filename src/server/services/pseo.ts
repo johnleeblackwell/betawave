@@ -262,8 +262,8 @@ export async function runAiSignalForClient(
   // Decision-Architecture node targeting: generate Choice-Point Content for one committee seat.
   const node = (opts.node || '').trim()
   const queries = (node
-    ? db.prepare('SELECT text, da_node FROM tracked_queries WHERE brand_id = ? AND active = 1 AND da_node = ? ORDER BY priority ASC, created_at ASC LIMIT ?').all(brand.id, node, limit)
-    : db.prepare('SELECT text, da_node FROM tracked_queries WHERE brand_id = ? AND active = 1 ORDER BY priority ASC, created_at ASC LIMIT ?').all(brand.id, limit)
+    ? db.prepare('SELECT id, text, da_node FROM tracked_queries WHERE brand_id = ? AND active = 1 AND da_node = ? ORDER BY priority ASC, created_at ASC LIMIT ?').all(brand.id, node, limit)
+    : db.prepare('SELECT id, text, da_node FROM tracked_queries WHERE brand_id = ? AND active = 1 ORDER BY priority ASC, created_at ASC LIMIT ?').all(brand.id, limit)
   ) as any[]
   // Safety default: health/medical clients ALWAYS get the compliant educational generator.
   const educational = opts.educational ??
@@ -272,15 +272,19 @@ export async function runAiSignalForClient(
   let created = 0, skipped = 0
   const items: any[] = []
   for (const q of queries) {
-    if (db.prepare(`SELECT 1 FROM content WHERE client_id = ? AND type = 'pseo' AND title = ?`).get(clientId, q.text)) { skipped++; continue }
+    // Dedup by the tracked_query's own id (source_ref), not a fuzzy title
+    // match — the LLM's H1 can differ in wording/capitalisation from the
+    // query text, which silently broke the old `title = q.text` check and
+    // let the same query regenerate as a duplicate page on re-runs.
+    if (db.prepare(`SELECT 1 FROM content WHERE client_id = ? AND type = 'pseo' AND source_ref = ?`).get(clientId, q.id)) { skipped++; continue }
     try {
       const { body, imageQuery } = await generateAiSignalPage(client, q.text, educational)
       const title = extractTitle(body) || q.text
       const answer = body.replace(/^#.*$/m, '').trim().split('\n\n')[0].replace(/[#*]/g, '').trim().slice(0, 500)
       const bodyWithSchema = `${body}\n\n${buildJsonLd(client, q.text, answer)}`
       const id = uuid()
-      db.prepare(`INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query) VALUES (?,?,'pseo',?,?,?,'draft',?)`)
-        .run(id, clientId, title, bodyWithSchema, answer.slice(0, 200), imageQuery)
+      db.prepare(`INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query, source, source_ref) VALUES (?,?,'pseo',?,?,?,'draft',?,'pseo',?)`)
+        .run(id, clientId, title, bodyWithSchema, answer.slice(0, 200), imageQuery, q.id)
       created++; items.push({ id, title, query: q.text, node: q.da_node || null })
       console.log(`[pseo-ai] generated ${educational ? 'EDUCATIONAL ' : ''}answer page for "${q.text}"${node ? ` [node:${node}]` : ''}`)
     } catch (e: any) {
