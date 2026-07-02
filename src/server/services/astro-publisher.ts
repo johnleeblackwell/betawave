@@ -278,7 +278,15 @@ export async function buildSite(siteId: string): Promise<{ ok: boolean; deployId
 //   For each `required` sha1: PUT /deploys/{deploy_id}/files/{path}  body: file bytes
 //   When all uploaded, Netlify marks the deploy READY automatically.
 
-export async function deployToNetlify(siteId: string): Promise<{ ok: boolean; url?: string; log: string }> {
+/**
+ * Deploy built dist/ to Netlify. Defaults to a DRAFT deploy — uploaded and
+ * given a live, working preview URL, but NOT published to the site's
+ * production alias (the real domain). Pass draft:false only when the caller
+ * has an explicit, in-the-moment go-ahead to overwrite the live site —
+ * never make that the default.
+ */
+export async function deployToNetlify(siteId: string, opts: { draft?: boolean } = {}): Promise<{ ok: boolean; url?: string; log: string; production: boolean }> {
+  const draft = opts.draft !== false // default true — production requires an explicit draft:false
   const site = getSite(siteId)
   if (!site.site_dir) throw new Error(`Site not materialised`)
   if (!site.netlify_site_id) throw new Error(`Site has no netlify_site_id — connect or create the Netlify site first`)
@@ -303,14 +311,17 @@ export async function deployToNetlify(siteId: string): Promise<{ ok: boolean; ur
     }
     dep.appendLog(`[deploy] ${allFiles.length} files, ${(Object.values(fileBytes).reduce((s, b) => s + b.length, 0) / 1024).toFixed(1)} KB total\n`)
 
-    // 2. Create deploy with digest
+    // 2. Create deploy with digest. draft:true (the default) uploads and gets
+    // a real, working preview URL WITHOUT publishing to the site's production
+    // alias/custom domain — the live site is untouched until draft:false.
+    dep.appendLog(`[deploy] mode: ${draft ? 'DRAFT (preview only, production untouched)' : 'PRODUCTION (will publish to the live domain)'}\n`)
     const createRes = await fetch(`${NETLIFY_API}/sites/${site.netlify_site_id}/deploys`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ files: filesMap, async: false }),
+      body: JSON.stringify({ files: filesMap, async: false, draft }),
     })
     if (!createRes.ok) {
       const t = await createRes.text()
@@ -345,15 +356,22 @@ export async function deployToNetlify(siteId: string): Promise<{ ok: boolean; ur
     }
 
     // 4. Poll status (deploy should auto-ready since async:false, but we verify)
-    const liveUrl = deploy.deploy_ssl_url || deploy.ssl_url || deploy.url || ''
-    dep.appendLog(`[deploy] complete — live at ${liveUrl}\n`)
-    dep.finish('deployed', liveUrl)
-    updateSite(siteId, { last_deployed_at: Math.floor(Date.now() / 1000), last_deploy_url: liveUrl })
-    return { ok: true, url: liveUrl, log: 'deployed' }
+    const previewUrl = deploy.deploy_ssl_url || deploy.ssl_url || deploy.url || ''
+    if (draft) {
+      dep.appendLog(`[deploy] complete — PREVIEW ONLY at ${previewUrl}\n[deploy] production domain (${site.domain || site.netlify_site_name}) was NOT changed.\n`)
+      dep.finish('deployed', previewUrl)
+      // Deliberately do NOT update last_deployed_at/last_deploy_url for drafts —
+      // those fields should only ever reflect what's actually live.
+      return { ok: true, url: previewUrl, log: 'deployed (draft/preview)', production: false }
+    }
+    dep.appendLog(`[deploy] complete — PUBLISHED LIVE at ${previewUrl}\n`)
+    dep.finish('deployed', previewUrl)
+    updateSite(siteId, { last_deployed_at: Math.floor(Date.now() / 1000), last_deploy_url: previewUrl })
+    return { ok: true, url: previewUrl, log: 'deployed (production)', production: true }
   } catch (e: any) {
     dep.appendLog(`[deploy] FAILED: ${e.message}\n`)
     dep.finish('failed')
-    return { ok: false, log: e.message }
+    return { ok: false, log: e.message, production: false }
   }
 }
 
@@ -404,10 +422,10 @@ export async function pingNetlifySite(netlifySiteId: string): Promise<{ ok: bool
 
 // ─── 6. One-shot publish: build + deploy in sequence ─────────────────────────
 
-export async function publishSite(siteId: string): Promise<{ ok: boolean; url?: string; log: string }> {
+export async function publishSite(siteId: string, opts: { draft?: boolean } = {}): Promise<{ ok: boolean; url?: string; log: string; production?: boolean }> {
   const buildRes = await buildSite(siteId)
   if (!buildRes.ok) return { ok: false, log: `build failed: ${buildRes.log}` }
-  const deployRes = await deployToNetlify(siteId)
+  const deployRes = await deployToNetlify(siteId, opts)
   return deployRes
 }
 
