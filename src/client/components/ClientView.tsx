@@ -4,7 +4,6 @@ import SourceManager from './SourceManager.tsx'
 import ContentGenerator from './ContentGenerator.tsx'
 import ContentLibrary from './ContentLibrary.tsx'
 import ScheduleManager from './ScheduleManager.tsx'
-import PseoHub from './PseoHub.tsx'
 import ReportHub from './ReportHub.tsx'
 import CitationHub from './CitationHub.tsx'
 import RespondHub from './RespondHub.tsx'
@@ -14,7 +13,7 @@ import DiscoveryHub from './DiscoveryHub.tsx'
 import SyndicationHub from './SyndicationHub.tsx'
 import SiteBuilder from './SiteBuilder.tsx'
 
-type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'pseo' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site'
+type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site'
 
 type Module = 'profile' | 'produce' | 'reach' | 'respond' | 'measure'
 
@@ -24,7 +23,6 @@ const TAB_META: Record<Tab, { label: string; icon: string; module: Module; disab
   generate: { label: 'Generate',  icon: '⚡', module: 'produce' },
   social:   { label: 'Social',    icon: '📱', module: 'produce' },
   syndicate:{ label: 'Syndicate', icon: '🔀', module: 'produce' },
-  pseo:     { label: 'pSEO',      icon: '🌍', module: 'produce' },
   reports:  { label: 'Reports',   icon: '📊', module: 'produce' },
   content:  { label: 'Content',   icon: '📚', module: 'produce' },
   shop:     { label: 'Shop',       icon: '🎁', module: 'reach'   },
@@ -35,7 +33,7 @@ const TAB_META: Record<Tab, { label: string; icon: string; module: Module; disab
   citation: { label: 'Citations', icon: '📡', module: 'measure' },
 }
 
-const TAB_ORDER: Tab[] = ['overview', 'sources', 'generate', 'social', 'syndicate', 'pseo', 'reports', 'content', 'site', 'shop', 'discovery', 'schedule', 'respond', 'citation']
+const TAB_ORDER: Tab[] = ['overview', 'sources', 'generate', 'social', 'syndicate', 'reports', 'content', 'site', 'shop', 'discovery', 'schedule', 'respond', 'citation']
 
 // Owner/agency-only tabs — never shown to a client operator. Discovery is the
 // B2B prospecting funnel (finding businesses to sell to), not a client
@@ -248,13 +246,11 @@ export default function ClientView({ clientId, tab, operator = false, onTabChang
 
       {tab === 'discovery' && <DiscoveryHub clientId={clientId} />}
 
-      {tab === 'pseo' && <PseoHub clientId={clientId} client={client} />}
-
       {tab === 'reports' && <ReportHub clientId={clientId} />}
 
       {tab === 'schedule' && <ScheduleManager clientId={clientId} client={client} />}
 
-      {tab === 'site' && <SiteBuilder clientId={clientId} />}
+      {tab === 'site' && <SiteBuilder clientId={clientId} client={client} operator={operator} />}
 
       {tab === 'citation' && <CitationHub clientId={clientId} clientName={client.business_name} clientDomain={client.primary_domain} />}
 

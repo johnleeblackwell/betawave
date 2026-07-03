@@ -48,7 +48,8 @@ function verifyUserToken(tok: string | undefined): UserSession | null {
  *            jobs, templates…) whose ids are only discoverable via this client's
  *            own scoped lists, with any client_id query forced to match.
  * Blocked:   the clients LIST, /api/admin, lead-generators, commissions,
- *            affiliates, and any path/param referencing a different client.
+ *            affiliates, pSEO generation + pSEO site-publishing (agency-only),
+ *            and any path/param referencing a different client.
  */
 function operatorGuard(user: UserSession, req: Request, res: Response, next: NextFunction) {
   const p = req.path
@@ -65,7 +66,12 @@ function operatorGuard(user: UserSession, req: Request, res: Response, next: Nex
   const m = p.match(/^\/api\/clients\/([^/]+)(\/.*)?$/)
   if (m) {
     if (m[1].toLowerCase() !== CID) return deny()
-    if (/^\/(discovery|prospects)(\/|$)/.test(m[2] || '')) return deny()
+    // pSEO (programmatic bulk-page generation + publishing straight to a live
+    // site) is an agency capability, not a client one — too easy to do real
+    // damage (duplicate/thin content, or an accidental live publish) without
+    // the judgment call that should sit with the agency operating the account.
+    if (/^\/(discovery|prospects|pseo)(\/|$)/.test(m[2] || '')) return deny()
+    if (/^\/sites\/pseo(-publish)?(\/|$)/.test(m[2] || '')) return deny()
     return next()
   }
 

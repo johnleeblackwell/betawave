@@ -77,7 +77,7 @@ export type View =
   | { type: 'dashboard' }
   | { type: 'affiliates' }
   | { type: 'settings' }
-  | { type: 'client'; id: string; tab: 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'syndicate' | 'pseo' | 'reports' | 'site' | 'shop' | 'schedule' | 'respond' | 'citation' | 'discovery' }
+  | { type: 'client'; id: string; tab: 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'syndicate' | 'reports' | 'site' | 'shop' | 'schedule' | 'respond' | 'citation' | 'discovery' }
   | { type: 'new-client' }
   | { type: 'edit-client'; id: string }
 

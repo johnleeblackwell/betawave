@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useToast } from '../App.tsx'
+import { Client, useToast } from '../App.tsx'
+import LocationManager from './LocationManager.tsx'
+import TemplateManager from './TemplateManager.tsx'
+import PseoRunner from './PseoRunner.tsx'
 
 interface Site {
   id: string
@@ -37,10 +40,15 @@ interface PseoRow {
 
 interface Props {
   clientId: string
+  client: Client
+  operator?: boolean   // client-scoped moderator — pSEO generation/publish is agency-only, hide those sub-tabs
 }
 
-export default function SiteBuilder({ clientId }: Props) {
+type SubTab = 'settings' | 'generate' | 'locations' | 'templates' | 'publish'
+
+export default function SiteBuilder({ clientId, client, operator = false }: Props) {
   const { showToast } = useToast()
+  const [subTab, setSubTab] = useState<SubTab>('settings')
   const [site, setSite] = useState<Site | null>(null)
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [siteName, setSiteName] = useState('Website')
@@ -158,7 +166,33 @@ export default function SiteBuilder({ clientId }: Props) {
 
   return (
     <div className="page-content" style={{ maxWidth: 760 }}>
-      {!site && (
+      <div className="sub-tabs">
+        <button className={`sub-tab ${subTab === 'settings' ? 'active' : ''}`} onClick={() => setSubTab('settings')}>
+          ⚙️ Settings
+        </button>
+        {!operator && (
+          <>
+            <button className={`sub-tab ${subTab === 'generate' ? 'active' : ''}`} onClick={() => setSubTab('generate')}>
+              🚀 Generate
+            </button>
+            <button className={`sub-tab ${subTab === 'locations' ? 'active' : ''}`} onClick={() => setSubTab('locations')}>
+              📍 Locations
+            </button>
+            <button className={`sub-tab ${subTab === 'templates' ? 'active' : ''}`} onClick={() => setSubTab('templates')}>
+              📝 Templates
+            </button>
+            <button className={`sub-tab ${subTab === 'publish' ? 'active' : ''}`} onClick={() => setSubTab('publish')}>
+              📤 Publish
+            </button>
+          </>
+        )}
+      </div>
+
+      {subTab === 'generate' && !operator && <PseoRunner clientId={clientId} client={client} />}
+      {subTab === 'locations' && !operator && <LocationManager clientId={clientId} />}
+      {subTab === 'templates' && !operator && <TemplateManager clientId={clientId} kindFilter="pseo" />}
+
+      {subTab === 'settings' && !site && (
         <div className="card">
           <div className="card-body" style={{ textAlign: 'center', padding: 32 }}>
             <p style={{ color: '#64748b', marginBottom: 12 }}>
@@ -171,7 +205,7 @@ export default function SiteBuilder({ clientId }: Props) {
         </div>
       )}
 
-      {site && (
+      {subTab === 'settings' && site && (
         <>
           <div className="card" style={{ marginBottom: 16 }}>
             <div className="card-header">
@@ -227,6 +261,27 @@ export default function SiteBuilder({ clientId }: Props) {
             </div>
           )}
 
+          {buildLog && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-header">
+                <span className="card-title">Build Log</span>
+              </div>
+              <div className="card-body">
+                <pre style={{
+                  fontSize: '0.8rem', color: '#334155', background: '#f1f5f9',
+                  padding: 12, borderRadius: 6, maxHeight: 300, overflowY: 'auto',
+                  whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, monospace',
+                }}>
+                  {buildLog}
+                </pre>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {subTab === 'publish' && !operator && site && (
+        <>
           {site.stack === 'astro_netlify' && (
             <div className="card" style={{ marginBottom: 16 }}>
               <div className="card-header">
@@ -294,23 +349,6 @@ export default function SiteBuilder({ clientId }: Props) {
                     )}
                   </div>
                 )}
-              </div>
-            </div>
-          )}
-
-          {buildLog && (
-            <div className="card" style={{ marginBottom: 16 }}>
-              <div className="card-header">
-                <span className="card-title">Build Log</span>
-              </div>
-              <div className="card-body">
-                <pre style={{
-                  fontSize: '0.8rem', color: '#334155', background: '#f1f5f9',
-                  padding: 12, borderRadius: 6, maxHeight: 300, overflowY: 'auto',
-                  whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, monospace',
-                }}>
-                  {buildLog}
-                </pre>
               </div>
             </div>
           )}
