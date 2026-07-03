@@ -72,12 +72,14 @@ router.post('/materialise', async (req, res) => {
 })
 
 // POST /api/clients/:clientId/sites/publish — build + deploy in one shot
+// SAFE BY DEFAULT: draft preview unless body sends { live: true }.
 router.post('/publish', async (req, res) => {
   try {
     const site = db.prepare('SELECT id, stack FROM sites WHERE client_id = ?').get((req.params as any).clientId) as any
     if (!site) return res.status(404).json({ error: 'Site not found' })
     if (site.stack !== 'astro_netlify') return res.status(400).json({ error: 'Publish only works for astro_netlify stack' })
-    const result = await publishSite(site.id)
+    const { live } = (req.body || {}) as { live?: boolean }
+    const result = await publishSite(site.id, { draft: !live })
     if (result.ok) res.json(result)
     else res.status(500).json(result)
   } catch (e: any) {

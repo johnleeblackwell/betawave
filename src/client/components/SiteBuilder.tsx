@@ -13,6 +13,7 @@ interface Site {
   status: string
   stack: string
   site_dir: string
+  netlify_site_id: string
   pseo_collection: string
   last_deploy_url: string
   last_built_at: number | null
@@ -59,6 +60,21 @@ export default function SiteBuilder({ clientId, client, operator = false }: Prop
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [publishing, setPublishing] = useState(false)
   const [publishResult, setPublishResult] = useState<{ ok: boolean; message: string; url?: string } | null>(null)
+
+  // WordPress publishing (client's own existing site — no Netlify/Astro involved)
+  const [wpUrl, setWpUrl] = useState(client.wp_url || '')
+  const [wpUsername, setWpUsername] = useState(client.wp_username || '')
+  const [wpAppPassword, setWpAppPassword] = useState(client.wp_app_password || '')
+  const [wpSaving, setWpSaving] = useState(false)
+  const [wpTesting, setWpTesting] = useState(false)
+  const [wpTestResult, setWpTestResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  // Astro + Netlify managed site setup wizard
+  const [netlifySiteName, setNetlifySiteName] = useState('')
+  const [creatingNetlify, setCreatingNetlify] = useState(false)
+  const [netlifyError, setNetlifyError] = useState('')
+  const [materialising, setMaterialising] = useState(false)
+  const [publishingLive, setPublishingLive] = useState(false)
 
   const loadSite = async () => {
     const res = await fetch(`/api/clients/${clientId}/sites`)
@@ -162,6 +178,107 @@ export default function SiteBuilder({ clientId, client, operator = false }: Prop
     }
   }
 
+  const handleWpSave = async () => {
+    setWpSaving(true)
+    try {
+      await fetch(`/api/clients/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wp_url: wpUrl, wp_username: wpUsername, wp_app_password: wpAppPassword }),
+      })
+      showToast('WordPress settings saved')
+    } finally {
+      setWpSaving(false)
+    }
+  }
+
+  const handleWpTest = async () => {
+    setWpTesting(true)
+    setWpTestResult(null)
+    try {
+      await handleWpSave()
+      const res = await fetch(`/api/clients/${clientId}/wordpress/categories`)
+      const data = await res.json()
+      if (res.ok) {
+        setWpTestResult({ ok: true, message: `Connected — found ${data.length} categor${data.length === 1 ? 'y' : 'ies'}` })
+      } else {
+        setWpTestResult({ ok: false, message: data.error || 'Connection failed' })
+      }
+    } catch (e: any) {
+      setWpTestResult({ ok: false, message: e.message })
+    } finally {
+      setWpTesting(false)
+    }
+  }
+
+  const handleCreateNetlify = async () => {
+    if (!netlifySiteName.trim()) return
+    setCreatingNetlify(true)
+    setNetlifyError('')
+    try {
+      const res = await fetch(`/api/clients/${clientId}/sites/netlify/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ netlifySiteName: netlifySiteName.trim(), customDomain: customDomain || undefined }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        showToast('Netlify site created')
+        loadSite()
+      } else {
+        setNetlifyError(data.error || 'Failed to create Netlify site')
+      }
+    } catch (e: any) {
+      setNetlifyError(e.message)
+    } finally {
+      setCreatingNetlify(false)
+    }
+  }
+
+  const handleMaterialise = async () => {
+    setMaterialising(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/sites/materialise`, { method: 'POST' })
+      const data = await res.json()
+      if (data.ok) {
+        showToast('Site materialised — ready to build')
+        loadSite()
+      } else {
+        showToast(data.log || data.error || 'Materialise failed', 'error')
+      }
+    } finally {
+      setMaterialising(false)
+    }
+  }
+
+  const handleAstroPublish = async (live: boolean) => {
+    if (live && !confirm('Publish the site LIVE? This updates the public domain.')) return
+    if (live) setPublishingLive(true); else setBuilding(true)
+    setBuildLog(live ? 'Publishing live...' : 'Building preview...')
+    try {
+      const res = await fetch(`/api/clients/${clientId}/sites/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ live }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setBuildLog(data.url ? `Deployed: ${data.url}` : 'Deployed')
+        showToast(data.production ? 'Published live!' : 'Preview deployed')
+        loadSite()
+        loadDeployments()
+      } else {
+        setBuildLog(data.error || data.log || 'Publish failed')
+        showToast('Publish failed', 'error')
+      }
+    } catch (e: any) {
+      setBuildLog(e.message)
+      showToast('Publish failed', 'error')
+    } finally {
+      if (live) setPublishingLive(false); else setBuilding(false)
+    }
+  }
+
   const previewUrl = site ? `/site/${site.slug}` : null
 
   return (
@@ -232,14 +349,147 @@ export default function SiteBuilder({ clientId, client, operator = false }: Prop
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="btn btn-secondary btn-sm" onClick={handleSave}>Save Settings</button>
-                <button
-                  className={`btn btn-primary btn-sm ${building ? 'disabled' : ''}`}
-                  onClick={handleBuild}
-                  disabled={building}
-                >
-                  {building ? '⏳ Building...' : '⚡ Build Site'}
+                {site.stack !== 'astro_netlify' && (
+                  <button
+                    className={`btn btn-primary btn-sm ${building ? 'disabled' : ''}`}
+                    onClick={handleBuild}
+                    disabled={building}
+                  >
+                    {building ? '⏳ Building...' : '⚡ Build Site'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <span className="card-title">WordPress Publishing</span>
+            </div>
+            <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
+                If this client already has their own WordPress site, connect it here — generated
+                content can then publish straight to it instead of (or alongside) a managed site.
+              </p>
+              <div className="form-group">
+                <div className="form-label">Site URL</div>
+                <input
+                  className="form-input"
+                  value={wpUrl}
+                  onChange={e => setWpUrl(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
+              <div className="form-group">
+                <div className="form-label">Username</div>
+                <input
+                  className="form-input"
+                  value={wpUsername}
+                  onChange={e => setWpUsername(e.target.value)}
+                  placeholder="admin"
+                />
+              </div>
+              <div className="form-group">
+                <div className="form-label">Application Password</div>
+                <input
+                  className="form-input"
+                  type="password"
+                  value={wpAppPassword}
+                  onChange={e => setWpAppPassword(e.target.value)}
+                  placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-secondary btn-sm" onClick={handleWpSave} disabled={wpSaving}>
+                  {wpSaving ? '⏳ Saving...' : 'Save'}
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={handleWpTest} disabled={wpTesting || !wpUrl}>
+                  {wpTesting ? '⏳ Testing...' : '🔌 Test Connection'}
                 </button>
               </div>
+              {wpTestResult && (
+                <div style={{
+                  padding: 10, borderRadius: 6, fontSize: '0.85rem',
+                  background: wpTestResult.ok ? '#f0fdf4' : '#fef2f2',
+                  color: wpTestResult.ok ? '#166534' : '#991b1b',
+                }}>
+                  {wpTestResult.message}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-header">
+              <span className="card-title">Managed Site (Astro + Netlify)</span>
+            </div>
+            <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {!site.netlify_site_id ? (
+                <>
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
+                    Recommended, done-for-you route: βWave hosts a fast static site for this client
+                    on Netlify. Pick a subdomain to start — the custom domain above gets pointed at
+                    it once it's live.
+                  </p>
+                  <div className="form-group">
+                    <div className="form-label">Netlify Site Name</div>
+                    <input
+                      className="form-input"
+                      value={netlifySiteName}
+                      onChange={e => setNetlifySiteName(e.target.value)}
+                      placeholder="e.g. locatorink"
+                    />
+                    <div className="form-hint">Site will be reachable at {netlifySiteName || '<name>'}.netlify.app</div>
+                  </div>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleCreateNetlify}
+                    disabled={creatingNetlify || !netlifySiteName.trim()}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {creatingNetlify ? '⏳ Creating...' : '🌐 Create Netlify Site'}
+                  </button>
+                  {netlifyError && <div style={{ color: '#991b1b', fontSize: '0.85rem' }}>{netlifyError}</div>}
+                </>
+              ) : !site.site_dir ? (
+                <>
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
+                    Netlify site <strong>{site.netlify_site_id}</strong> is linked. Next, materialise
+                    the site template so it can be built.
+                  </p>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={handleMaterialise}
+                    disabled={materialising}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {materialising ? '⏳ Materialising...' : '📦 Materialise Site'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
+                    Preview deploys never touch the live domain — Publish Live does.
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => handleAstroPublish(false)}
+                      disabled={building || publishingLive}
+                    >
+                      {building ? '⏳ Working...' : '👀 Preview Build'}
+                    </button>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handleAstroPublish(true)}
+                      disabled={building || publishingLive}
+                      style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                    >
+                      {publishingLive ? '⏳ Working...' : '🔴 Publish Live'}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
