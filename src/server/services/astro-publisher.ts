@@ -173,7 +173,7 @@ export async function materialiseSite(siteId: string): Promise<{ ok: boolean; lo
 // ─── 2. Write content row → markdown file in the right collection ────────────
 
 export interface ContentPayload {
-  collection: 'posts' | 'places' | 'pages'
+  collection: 'posts' | 'places' | 'pages' | 'news'
   slug: string
   title: string
   description?: string

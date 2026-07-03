@@ -1375,6 +1375,7 @@ db.exec(`
   add('accent_colour',     `accent_colour TEXT DEFAULT '#d97706'`)
   add('tagline',           `tagline TEXT DEFAULT ''`)
   add('last_deploy_url',   `last_deploy_url TEXT DEFAULT ''`)
+  add('pseo_collection',   `pseo_collection TEXT DEFAULT 'posts'`)              // which content collection pSEO pages get written into (e.g. 'news' for a news-style site)
 }
 
 // Drop the UNIQUE constraint on client_id so one client can own multiple sites

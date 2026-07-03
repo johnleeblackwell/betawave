@@ -31,7 +31,7 @@ router.put('/', async (req, res) => {
 
   const editable = [
     'name', 'custom_domain', 'stack', 'domain', 'tagline', 'accent_colour',
-    'netlify_site_id', 'netlify_site_name', 'git_remote',
+    'netlify_site_id', 'netlify_site_name', 'git_remote', 'pseo_collection',
   ]
   const sets: string[] = []
   const vals: any[] = []
@@ -164,6 +164,71 @@ router.post('/destroy-local', (req, res) => {
     const site = db.prepare('SELECT id FROM sites WHERE client_id = ?').get((req.params as any).clientId) as any
     if (!site) return res.status(404).json({ error: 'Site not found' })
     res.json(destroyMaterialisedSite(site.id))
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e.message })
+  }
+})
+
+// GET /api/clients/:clientId/sites/pseo — draft pSEO content rows available to publish
+router.get('/pseo', (req, res) => {
+  const { clientId } = req.params as { clientId: string }
+  const rows = db.prepare(`
+    SELECT id, title, excerpt, status, created_at FROM content
+    WHERE client_id = ? AND type = 'pseo'
+    ORDER BY created_at DESC
+  `).all(clientId)
+  res.json(rows)
+})
+
+// POST /api/clients/:clientId/sites/pseo-publish — write selected pSEO rows into
+// the site's configured collection, build, and deploy. Body: { contentIds: string[], live?: boolean }
+// SAFE BY DEFAULT: deploys as a draft preview unless `live: true` is explicitly sent.
+router.post('/pseo-publish', async (req, res) => {
+  try {
+    const { clientId } = req.params as { clientId: string }
+    const { contentIds, live } = req.body as { contentIds: string[]; live?: boolean }
+    if (!Array.isArray(contentIds) || contentIds.length === 0) {
+      return res.status(400).json({ ok: false, error: 'contentIds required' })
+    }
+
+    const site = db.prepare('SELECT * FROM sites WHERE client_id = ?').get(clientId) as any
+    if (!site) return res.status(404).json({ ok: false, error: 'Site not found' })
+    if (site.stack !== 'astro_netlify') {
+      return res.status(400).json({ ok: false, error: 'pSEO publish only works for astro_netlify sites' })
+    }
+    if (!site.site_dir) {
+      return res.status(400).json({ ok: false, error: 'Site not materialised yet — run materialise first' })
+    }
+
+    const collection = (site.pseo_collection || 'posts') as ContentPayload['collection']
+    const written: string[] = []
+    for (const id of contentIds) {
+      const row = db.prepare(`SELECT id, title, body, excerpt FROM content WHERE id = ? AND client_id = ?`).get(id, clientId) as any
+      if (!row) continue
+      writeContentToSite(site.id, {
+        collection,
+        slug: row.title,
+        title: row.title,
+        description: row.excerpt || '',
+        pubDate: new Date(),
+        body: row.body,
+      })
+      written.push(row.id)
+    }
+
+    if (written.length === 0) return res.status(400).json({ ok: false, error: 'No matching content rows found' })
+
+    const b = await astroBuild(site.id)
+    if (!b.ok) return res.status(500).json({ ok: false, error: `Build failed: ${b.log}` })
+
+    const d = await deployToNetlify(site.id, { draft: !live })
+    if (!d.ok) return res.status(500).json({ ok: false, error: `Deploy failed: ${d.log}` })
+
+    if (d.production) {
+      for (const id of written) db.prepare(`UPDATE content SET status = 'published' WHERE id = ?`).run(id)
+    }
+
+    res.json({ ok: true, written: written.length, production: !!d.production, url: d.url })
   } catch (e: any) {
     res.status(500).json({ ok: false, error: e.message })
   }
