@@ -1287,6 +1287,11 @@ db.exec(`
 // instead of burst-posting. Default 60 = ~hourly cadence, sensible for X.
 {
   const cols = (db.prepare(`PRAGMA table_info(syndication_destinations)`).all() as any[]).map(c => c.name)
+  if (!cols.includes('account_id')) {
+    // Meta platforms: FB Page ID / IG Business user ID (the Graph API object
+    // that /feed, /photos, /media get POSTed to). access_token = Page token.
+    db.exec(`ALTER TABLE syndication_destinations ADD COLUMN account_id TEXT DEFAULT ''`)
+  }
   if (!cols.includes('min_minutes_between_posts')) {
     db.exec(`ALTER TABLE syndication_destinations ADD COLUMN min_minutes_between_posts INTEGER DEFAULT 60`)
     // Backfill existing rows (SQLite ALTER TABLE leaves them NULL unless DEFAULT is constant — be explicit)

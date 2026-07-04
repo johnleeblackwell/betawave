@@ -97,16 +97,16 @@ router.get('/destinations', (req, res) => {
 
 router.post('/destinations', (req, res) => {
   const { clientId } = req.params as { clientId: string }
-  const { label, platform = 'x', handle = '', api_key = '', api_secret = '', access_token = '', access_secret = '' } = req.body
+  const { label, platform = 'x', handle = '', api_key = '', api_secret = '', access_token = '', access_secret = '', account_id = '' } = req.body
   if (!label?.trim()) return res.status(400).json({ error: 'label required' })
 
   const id = crypto.randomUUID()
   db.prepare(`
     INSERT INTO syndication_destinations
-      (id, client_id, label, platform, handle, api_key, api_secret, access_token, access_secret)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, client_id, label, platform, handle, api_key, api_secret, access_token, access_secret, account_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, clientId, label.trim(), platform, handle.trim(),
-         api_key.trim(), api_secret.trim(), access_token.trim(), access_secret.trim())
+         api_key.trim(), api_secret.trim(), access_token.trim(), access_secret.trim(), account_id.trim())
 
   const row = db.prepare(`SELECT * FROM syndication_destinations WHERE id = ?`).get(id) as any
   res.json(maskSecrets(row))
@@ -118,7 +118,7 @@ router.patch('/destinations/:id', (req, res) => {
   if (!row) return res.status(404).json({ error: 'Destination not found' })
 
   // Don't overwrite secrets with mask placeholders
-  const fields = ['label', 'platform', 'handle', 'api_key', 'api_secret', 'access_token', 'access_secret', 'active', 'min_minutes_between_posts']
+  const fields = ['label', 'platform', 'handle', 'api_key', 'api_secret', 'access_token', 'access_secret', 'account_id', 'active', 'min_minutes_between_posts']
   const updates: string[] = []
   const values: any[] = []
   for (const f of fields) {

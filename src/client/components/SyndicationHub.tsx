@@ -6,7 +6,7 @@ interface Source {
   handle: string; api_token: string; active: number; last_polled: number | null
 }
 interface Destination {
-  id: string; label: string; platform: string; handle: string
+  id: string; label: string; platform: string; handle: string; account_id?: string
   api_key: string; api_secret: string; access_token: string; access_secret: string; active: number
 }
 interface Route {
@@ -27,6 +27,8 @@ const PLATFORM_META: Record<string, { icon: string; colour: string; name: string
   reddit:   { icon: '🔴', colour: '#FF4500', name: 'Reddit' },
   medium:   { icon: '📝', colour: '#000000', name: 'Medium' },
   linkedin: { icon: '🔗', colour: '#0a66c2', name: 'LinkedIn' },
+  facebook: { icon: '👍', colour: '#1877F2', name: 'Facebook Page' },
+  instagram:{ icon: '📸', colour: '#E4405F', name: 'Instagram' },
 }
 
 export default function SyndicationHub({ clientId }: { clientId: string }) {
@@ -442,8 +444,8 @@ function SourceFields({ form, onChange, editMode = false }: { form: SourceFormSt
 }
 
 // ─── DESTINATIONS ────────────────────────────────────────────────────────────
-type DestForm = { label: string; platform: string; handle: string; api_key: string; api_secret: string; access_token: string; access_secret: string }
-const blankDest: DestForm = { label: '', platform: 'x', handle: '', api_key: '', api_secret: '', access_token: '', access_secret: '' }
+type DestForm = { label: string; platform: string; handle: string; api_key: string; api_secret: string; access_token: string; access_secret: string; account_id: string }
+const blankDest: DestForm = { label: '', platform: 'x', handle: '', api_key: '', api_secret: '', access_token: '', access_secret: '', account_id: '' }
 
 function DestinationsTab({ clientId, destinations, onChange }: { clientId: string; destinations: Destination[]; onChange: () => void }) {
   const { showToast } = useToast()
@@ -476,13 +478,13 @@ function DestinationsTab({ clientId, destinations, onChange }: { clientId: strin
   }
   const startEdit = (d: Destination) => {
     setEditingId(d.id)
-    setEditForm({ label: d.label, platform: d.platform, handle: d.handle, api_key: '', api_secret: '', access_token: '', access_secret: '' })
+    setEditForm({ label: d.label, platform: d.platform, handle: d.handle, api_key: '', api_secret: '', access_token: '', access_secret: '', account_id: d.account_id || '' })
     setShowAdd(false)
   }
   const saveEdit = async () => {
     if (!editingId) return
     setSaving(true)
-    const payload: any = { label: editForm.label, handle: editForm.handle }
+    const payload: any = { label: editForm.label, handle: editForm.handle, account_id: editForm.account_id }
     if (editForm.api_key)       payload.api_key       = editForm.api_key
     if (editForm.api_secret)    payload.api_secret    = editForm.api_secret
     if (editForm.access_token)  payload.access_token  = editForm.access_token
@@ -593,12 +595,14 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
             <option value="telegram">✈️  Telegram</option>
             <option value="reddit">🔴  Reddit</option>
             <option value="medium">📝  Medium</option>
+            <option value="facebook">👍  Facebook Page</option>
+            <option value="instagram">📸  Instagram</option>
           </select>
         </div>
         <div>
           <label className="form-label">Label *</label>
           <input className="form-input" value={form.label} onChange={e => onChange({ ...form, label: e.target.value })}
-            placeholder={{ x: 'My X account', telegram: 'My Telegram channel', reddit: 'My Reddit account', medium: 'My Medium blog' }[p] || 'Account label'} />
+            placeholder={{ x: 'My X account', telegram: 'My Telegram channel', reddit: 'My Reddit account', medium: 'My Medium blog', facebook: 'My Facebook Page', instagram: 'My Instagram account' }[p] || 'Account label'} />
         </div>
       </div>
 
@@ -650,6 +654,37 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
               <label className="form-label">Bot token {editMode && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(leave blank to keep)</span>}</label>
               <input className="form-input" type="password" value={form.access_token} onChange={e => onChange({ ...form, access_token: e.target.value })}
                 placeholder={editMode ? blank : '123456789:ABC-...'} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {(p === 'facebook' || p === 'instagram') && (
+        <>
+          <div style={{ background: 'var(--accent-soft)', padding: 10, borderRadius: 6, fontSize: '0.82rem', marginBottom: 12 }}>
+            {p === 'facebook' ? (
+              <>1. Create an app at <a href="https://developers.facebook.com" target="_blank" rel="noreferrer">developers.facebook.com</a> and link your Page.<br />
+              2. Get a long-lived <strong>Page access token</strong> (Graph API Explorer → Page token, or via your app).<br />
+              3. Page ID: on your Page → About → Page transparency (or Graph Explorer <code>me/accounts</code>).</>
+            ) : (
+              <>1. Your Instagram must be a <strong>Business/Creator account linked to a Facebook Page</strong>.<br />
+              2. Use the same Meta app + long-lived Page token (needs <code>instagram_content_publish</code>).<br />
+              3. IG user ID: Graph Explorer → <code>me/accounts?fields=instagram_business_account</code>.<br />
+              ⚠️ Instagram posts <strong>require an image</strong> — βWave auto-sources one per post if the article has none.</>
+            )}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label className="form-label">Handle</label>
+              <input className="form-input" value={form.handle} onChange={e => onChange({ ...form, handle: e.target.value })} placeholder={p === 'facebook' ? 'Page name' : '@myhandle'} />
+            </div>
+            <div>
+              <label className="form-label">{p === 'facebook' ? 'Page ID *' : 'IG Business user ID *'}</label>
+              <input className="form-input" value={form.account_id} onChange={e => onChange({ ...form, account_id: e.target.value })} placeholder="17841400000000000" />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Page access token {editMode && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(leave blank to keep)</span>}</label>
+              <input className="form-input" type="password" value={form.access_token} onChange={e => onChange({ ...form, access_token: e.target.value })} placeholder={editMode ? blank : 'EAAG...'} />
             </div>
           </div>
         </>

@@ -41,6 +41,12 @@ export async function postToDestination(dest: any, text: string, mediaUrls: stri
     const title = (opts.title || text.split('\n')[0]).slice(0, 100)
     return postToMedium(dest, title, opts.title ? text : text)
   }
+  if (dest.platform === 'facebook') {
+    return postToFacebook(dest, text, mediaUrls)
+  }
+  if (dest.platform === 'instagram') {
+    return postToInstagram(dest, text, mediaUrls)
+  }
   if (dest.platform === 'linkedin') {
     throw new Error('LinkedIn posting needs an approved LinkedIn app + OAuth (Posts API). Scaffolded — add app credentials to enable.')
   }
@@ -108,6 +114,7 @@ interface Destination {
   api_secret: string
   access_token: string
   access_secret: string
+  account_id?: string   // Meta: FB Page ID / IG Business user ID
 }
 
 /**
@@ -159,7 +166,7 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
         const poolItem = await pickBestFromPool(client, route.client_id, route.id)
         if (!poolItem) { skipped++; continue }
 
-        const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, poolItem.url || undefined)
+        const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, withUtm(poolItem.url, dest.platform), dest.platform)
 
         const syndId = crypto.randomUUID()
         db.prepare(`
@@ -171,7 +178,14 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
                poolItem.url, poolItem.title + '\n\n' + poolItem.body.slice(0, 500), rewritten)
 
         try {
-          const { id: postedId, url: postedUrl } = await postToDestination(dest, rewritten)
+          // Image-first platforms: IG refuses text-only posts; FB photo posts
+          // reach further than plain text. Stock cascade only — free, and the
+          // URLs are stable for Meta's server-side download.
+          let media: string[] = []
+          if (dest.platform === 'instagram' || dest.platform === 'facebook') {
+            media = await sourceMediaForPost(client, poolItem.title)
+          }
+          const { id: postedId, url: postedUrl } = await postToDestination(dest, rewritten, media)
           const now = Math.floor(Date.now() / 1000)
           db.prepare(`UPDATE syndications SET status='posted', posted_id=?, posted_url=?, posted_at=? WHERE id=?`)
             .run(postedId, postedUrl, now, syndId)
@@ -192,7 +206,7 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
         if (newItems.length === 0) { skipped++; continue }
 
         const item = newItems[0]
-        const rewritten = await rewriteForX(client, item.title || '', item.content || '', route.rewrite_prompt, item.url || undefined)
+        const rewritten = await rewriteForX(client, item.title || '', item.content || '', route.rewrite_prompt, withUtm(item.url, dest.platform), dest.platform)
 
         const syndId = crypto.randomUUID()
         db.prepare(`
@@ -204,7 +218,11 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
                item.url || '', (item.title || '') + '\n\n' + (item.content || ''), rewritten)
 
         try {
-          const { id: postedId, url: postedUrl } = await postToDestination(dest, rewritten, item.media_urls || [])
+          let media: string[] = item.media_urls || []
+          if (!media.length && (dest.platform === 'instagram' || dest.platform === 'facebook')) {
+            media = await sourceMediaForPost(client, item.title || '')
+          }
+          const { id: postedId, url: postedUrl } = await postToDestination(dest, rewritten, media)
           db.prepare(`UPDATE syndications SET status='posted', posted_id=?, posted_url=?, posted_at=? WHERE id=?`)
             .run(postedId, postedUrl, Math.floor(Date.now() / 1000), syndId)
           db.prepare(`UPDATE syndication_routes SET posts_today = posts_today + 1 WHERE id = ?`).run(route.id)
@@ -508,33 +526,87 @@ Reply with ONLY the ID from the brackets. Nothing else.`
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM rewriter — convert source content into on-voice X post
 // ─────────────────────────────────────────────────────────────────────────────
-async function rewriteForX(client: any, title: string, body: string, customPrompt: string, sourceUrl?: string): Promise<string> {
+/** Tag outbound links so GA can attribute social traffic per platform. */
+function withUtm(url: string | undefined | null, platform: string): string | undefined {
+  if (!url) return undefined
+  try {
+    const u = new URL(url)
+    u.searchParams.set('utm_source', platform)
+    u.searchParams.set('utm_medium', 'social')
+    u.searchParams.set('utm_campaign', 'syndication')
+    return u.toString()
+  } catch { return url }
+}
+
+/** Free stock image for image-first platforms. Best-effort — never blocks the post
+ *  (except on IG, where postToInstagram itself enforces the image requirement). */
+async function sourceMediaForPost(client: any, title: string): Promise<string[]> {
+  try {
+    const { getImageForPost } = await import('./images.js')
+    const img = await getImageForPost({
+      title,
+      industry: client.industry || '',
+      excerpt: '',
+      imageSource: 'stock',   // stock only — DALL-E per syndicated post would burn spend silently
+      searchQuery: title,
+    })
+    return img?.downloadUrl ? [img.downloadUrl] : []
+  } catch (e: any) {
+    console.warn(`[syndication] image sourcing failed for "${title}": ${e.message}`)
+    return []
+  }
+}
+
+// Per-platform rewrite behaviour. X stays the default (and the function keeps
+// its historical name — every call site already routes through here).
+const REWRITE_SPECS: Record<string, { label: string; budget: number; appendUrl: boolean; rules: string }> = {
+  x: {
+    label: 'X (formerly Twitter)', budget: 253, appendUrl: true,
+    rules: `- One idea, one sentence preferred
+- No hashtag spam — at most 2 if they're genuinely useful`,
+  },
+  facebook: {
+    label: 'Facebook', budget: 600, appendUrl: true,
+    rules: `- 40–80 words, warm and conversational — like telling a friend, not broadcasting
+- End with a question or soft invitation to comment when natural
+- At most 1–2 hashtags, or none`,
+  },
+  instagram: {
+    label: 'Instagram', budget: 2000, appendUrl: false,
+    rules: `- 100–150 word caption. The FIRST LINE must hook — it's all that shows before "…more"
+- Do NOT include any URL — links are not clickable in IG captions
+- Emojis woven through naturally
+- End with a blank line then 10–15 relevant hashtags`,
+  },
+}
+
+async function rewriteForX(client: any, title: string, body: string, customPrompt: string, sourceUrl?: string, platform: string = 'x'): Promise<string> {
   const brandVoice = client.brand_voice || client.tone_of_voice || 'professional, warm'
   const businessName = client.business_name || 'the business'
+  const spec = REWRITE_SPECS[platform] || REWRITE_SPECS.x
 
   // X counts every URL as 23 chars (t.co). Budget text to 253 chars so the
   // appended URL + space fits within the 280 hard limit.
-  const textBudget = sourceUrl ? 253 : 270
+  const appendUrl = spec.appendUrl && !!sourceUrl
+  const textBudget = platform === 'x' ? (appendUrl ? 253 : 270) : spec.budget
 
-  const system = customPrompt || `You rewrite social posts for X (formerly Twitter) on behalf of “${businessName}”.
+  const system = customPrompt || `You rewrite social posts for ${spec.label} on behalf of “${businessName}”.
 
 VOICE: ${brandVoice}
 
 RULES:
-- Maximum ${textBudget} characters — a source link will be appended automatically, do NOT include a URL yourself
-- One idea, one sentence preferred
+- Maximum ${textBudget} characters${appendUrl ? ' — a source link will be appended automatically, do NOT include a URL yourself' : ''}
+${spec.rules}
 - No “Excited to announce”, no marketing-speak, no AI clichés
-- Strip Instagram-only formatting (carousel notes, @ tags that don't exist on X)
 - Keep relevant emojis from source if natural
-- No hashtag spam — at most 2 if they're genuinely useful
 - Sound like a human posted it from a phone, not a brand strategist
 - Plain text only — no markdown
 
 Output ONLY the post text. Nothing else. No quotes around it. No prefix.`
 
-  const prompt = `Source post:\n\nTitle: ${title}\n\nBody: ${body}\n\nRewrite as one X post.`
+  const prompt = `Source post:\n\nTitle: ${title}\n\nBody: ${body}\n\nRewrite as one ${spec.label} post.`
 
-  const result = await generate(client, { system, prompt, max_tokens: 200, temperature: 0.8 })
+  const result = await generate(client, { system, prompt, max_tokens: 700, temperature: 0.8 })
   let text = result.text.trim()
   // Strip wrapping quotes if model added any
   if ((text.startsWith('”') && text.endsWith('”')) || (text.startsWith('”') && text.endsWith('”'))) {
@@ -544,13 +616,82 @@ Output ONLY the post text. Nothing else. No quotes around it. No prefix.`
   if (text.length > textBudget) {
     text = text.slice(0, textBudget - 1).replace(/\s+\S*$/, '') + '…'
   }
-  // Append source URL — X auto-previews it as a card
-  if (sourceUrl) text = `${text} ${sourceUrl}`
+  // Append source URL — X/FB auto-preview it as a card
+  if (appendUrl) text = `${text} ${sourceUrl}`
   return text
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // X (Twitter) API v2 — OAuth 1.0a User Context for posting tweets
+// ─────────────────────────────────────────────────────────────────────────────
+// Meta Graph API — Facebook Pages + Instagram Business
+//
+// Both use the SAME credentials model: dest.account_id = the Graph object id
+// (FB Page ID, or IG Business user ID), dest.access_token = a long-lived Page
+// access token from a Meta app where the Page/IG account is linked.
+// IG hard rule: the API refuses text-only posts — an image URL is mandatory,
+// and it must be publicly fetchable (Meta's servers download it).
+// ─────────────────────────────────────────────────────────────────────────────
+const META_GRAPH = 'https://graph.facebook.com/v21.0'
+
+async function metaApi(path: string, params: Record<string, string>): Promise<any> {
+  const res = await fetch(`${META_GRAPH}/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(params).toString(),
+  })
+  const data = await res.json() as any
+  if (!res.ok || data.error) {
+    const msg = data?.error?.message || `HTTP ${res.status}`
+    throw new Error(`Meta API ${path}: ${msg}`)
+  }
+  return data
+}
+
+async function postToFacebook(dest: Destination & { account_id?: string }, text: string, mediaUrls: string[] = []): Promise<{ id: string; url: string }> {
+  const pageId = (dest.account_id || '').trim()
+  if (!pageId) throw new Error('Facebook destination needs account_id (the Page ID) — edit the destination and add it')
+  if (!dest.access_token) throw new Error('Facebook destination needs access_token (a Page access token)')
+
+  let data: any
+  if (mediaUrls.length > 0) {
+    // Photo post — image URL is downloaded by Meta's servers
+    data = await metaApi(`${pageId}/photos`, {
+      url: mediaUrls[0],
+      caption: text,
+      access_token: dest.access_token,
+    })
+  } else {
+    data = await metaApi(`${pageId}/feed`, {
+      message: text,
+      access_token: dest.access_token,
+    })
+  }
+  const id = String(data.post_id || data.id)
+  return { id, url: `https://www.facebook.com/${id}` }
+}
+
+async function postToInstagram(dest: Destination & { account_id?: string }, text: string, mediaUrls: string[] = []): Promise<{ id: string; url: string }> {
+  const igUserId = (dest.account_id || '').trim()
+  if (!igUserId) throw new Error('Instagram destination needs account_id (the IG Business user ID) — edit the destination and add it')
+  if (!dest.access_token) throw new Error('Instagram destination needs access_token (a Page access token with instagram_content_publish)')
+  if (!mediaUrls.length) throw new Error('Instagram requires an image — the Graph API refuses text-only posts. Attach media or enable image sourcing on the route.')
+
+  // Two-step publish: create a media container, then publish it
+  const container = await metaApi(`${igUserId}/media`, {
+    image_url: mediaUrls[0],
+    caption: text.slice(0, 2200),
+    access_token: dest.access_token,
+  })
+  const published = await metaApi(`${igUserId}/media_publish`, {
+    creation_id: container.id,
+    access_token: dest.access_token,
+  })
+  const id = String(published.id)
+  const handle = (dest.handle || '').replace(/^@/, '')
+  return { id, url: handle ? `https://www.instagram.com/${handle}/` : '' }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 async function postToX(dest: Destination, text: string, mediaUrls: string[] = []): Promise<{ id: string }> {
   // Upload up to 4 images first. Image upload failures fall back to text-only —
@@ -792,6 +933,18 @@ export async function testDestination(destId: string): Promise<{ ok: boolean; ha
       return u?.id ? { ok: true, handle: u.username || u.name } : { ok: false, error: 'No author returned' }
     } catch (e: any) { return { ok: false, error: e.message } }
   }
+  if (dest.platform === 'facebook' || dest.platform === 'instagram') {
+    try {
+      const accountId = (dest.account_id || '').trim()
+      if (!accountId) return { ok: false, error: `${dest.platform === 'facebook' ? 'Page ID' : 'IG user ID'} (account_id) missing` }
+      if (!dest.access_token) return { ok: false, error: 'Page access token missing' }
+      const fields = dest.platform === 'facebook' ? 'name' : 'username'
+      const r = await fetch(`${META_GRAPH}/${accountId}?fields=${fields}&access_token=${encodeURIComponent(dest.access_token)}`)
+      const data = await r.json() as any
+      if (!r.ok || data.error) return { ok: false, error: data?.error?.message || `Meta HTTP ${r.status}` }
+      return { ok: true, handle: data.name || data.username || accountId }
+    } catch (e: any) { return { ok: false, error: e.message } }
+  }
   if (dest.platform !== 'x') return { ok: false, error: `Test not implemented for ${dest.platform}` }
 
   try {
@@ -829,13 +982,15 @@ export async function previewRoute(routeId: string): Promise<{
     const source = db.prepare(`SELECT * FROM syndication_sources WHERE id = ?`).get(route.source_id) as Source | undefined
     if (!source) return { ok: false, error: 'Source not found' }
     const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(route.client_id) as any
+    const previewDest = db.prepare(`SELECT * FROM syndication_destinations WHERE id = ?`).get(route.destination_id) as Destination | undefined
+    const previewPlatform = previewDest?.platform || 'x'
 
     if (source.source_type === 'rss') {
       // Pool path: refresh + LLM pick so preview shows exactly what the next real post would be
       await upsertPoolFromRSS(source, route.client_id)
       const poolItem = await pickBestFromPool(client, route.client_id, route.id)
       if (!poolItem) return { ok: false, error: 'No suitable content in pool for today — try again after more blog posts are published or the cooldown window resets' }
-      const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, poolItem.url || undefined)
+      const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, withUtm(poolItem.url, previewPlatform), previewPlatform)
       return {
         ok: true,
         source_item: { id: poolItem.source_item_id, url: poolItem.url, title: poolItem.title, content: poolItem.body },
@@ -850,7 +1005,7 @@ export async function previewRoute(routeId: string): Promise<{
 
     if (items.length === 0) return { ok: false, error: 'No items in feed' }
     const item = items.sort((a, b) => (b.pub_date || 0) - (a.pub_date || 0))[0]
-    const rewritten = await rewriteForX(client, item.title, item.content, route.rewrite_prompt, item.url || undefined)
+    const rewritten = await rewriteForX(client, item.title, item.content, route.rewrite_prompt, withUtm(item.url, previewPlatform), previewPlatform)
     return { ok: true, source_item: item, rewritten }
   } catch (e: any) {
     return { ok: false, error: humaniseApiError(e) }
