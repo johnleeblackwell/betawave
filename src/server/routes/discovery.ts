@@ -43,7 +43,21 @@ import { generate, ping } from '../services/llm.js'
 const router = Router({ mergeParams: true })
 
 // ─── Vertical templates (curated seeds users can adopt for a client) ─────────
-const VERTICAL_TEMPLATES: Record<string, Array<{ slug: string; name: string; description: string }>> = {
+const VERTICAL_TEMPLATES: Record<string, Array<{ slug: string; name: string; description: string; minLocations?: number }>> = {
+  // Local high-LTV service businesses, single-site included (minLocations 1) —
+  // built for an owner-operated-practice outbound sprint.
+  'owner-operated': [
+    { slug: 'cosmetic-dentists', name: 'Cosmetic Dentists', minLocations: 1,
+      description: 'Private/cosmetic dental practices — implants, aligners, veneers, whitening. High LTV, marketing-aware.' },
+    { slug: 'aesthetics-clinics', name: 'Aesthetics & Skin Clinics', minLocations: 1,
+      description: 'Injectables, laser, skin treatment and medi-spa clinics. Owner-led, image-conscious, already buying marketing.' },
+    { slug: 'home-improvement-local', name: 'Home Improvement (Local)', minLocations: 1,
+      description: 'Kitchens, bathrooms, glazing, driveways, landscaping firms. Big-ticket jobs, lead-hungry, weak digital presence.' },
+    { slug: 'law-firms', name: 'Law Firms', minLocations: 1,
+      description: 'Family, PI, conveyancing and private-client practices. High case value, competitive local search.' },
+    { slug: 'private-vets', name: 'Private Vets & Pet Care', minLocations: 1,
+      description: 'Independent veterinary practices and premium pet-care businesses. Loyal client base, recurring revenue.' },
+  ],
   'local-services': [
     { slug: 'home-improvements', name: 'Home Improvements',
       description: 'Multi-unit home improvement retailers — glazing, flooring, kitchens, bathrooms, furniture. 3+ physical locations.' },
@@ -154,7 +168,7 @@ router.post('/verticals/seed', (req, res) => {
   let skipped = 0
   for (const s of seeds) {
     if (existsStmt.get(clientId, s.slug)) { skipped++; continue }
-    insert.run(crypto.randomUUID(), clientId, s.slug, s.name, s.description, 3)
+    insert.run(crypto.randomUUID(), clientId, s.slug, s.name, s.description, s.minLocations ?? 3)
     inserted++
   }
   res.json({ inserted, skipped, template })

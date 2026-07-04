@@ -111,9 +111,10 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenSetting
 }) {
   const { showToast } = useToast()
   const [showAddVertical, setShowAddVertical] = useState(false)
+  const [showTemplates, setShowTemplates] = useState(false)
   const [seeding, setSeeding] = useState(false)
 
-  const seed = async (template: 'local-services' | 'professional-services') => {
+  const seed = async (template: 'owner-operated' | 'local-services' | 'professional-services') => {
     setSeeding(true)
     const res = await fetch(`/api/clients/${clientId}/discovery/verticals/seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -136,11 +137,29 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenSetting
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost btn-sm" onClick={onOpenSettings}>⚙️ Settings</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowTemplates(!showTemplates)}>📦 Templates</button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowAddVertical(!showAddVertical)}>+ Add vertical</button>
         </div>
       </div>
 
       {showAddVertical && <AddVerticalForm clientId={clientId} onSaved={() => { reload(); setShowAddVertical(false) }} onCancel={() => setShowAddVertical(false)} />}
+
+      {showTemplates && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-body" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="text-muted" style={{ fontSize: '0.85rem', marginRight: 4 }}>Seed a curated vertical set (skips any that already exist):</span>
+            <button className="btn btn-primary btn-sm" disabled={seeding} onClick={() => seed('owner-operated')}>
+              🏃 Owner-operated (Dentists / Aesthetics / Home / Legal / Vets)
+            </button>
+            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('local-services')}>
+              Multi-unit (Home / Trades / Beauty)
+            </button>
+            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('professional-services')}>
+              Professional services
+            </button>
+          </div>
+        </div>
+      )}
 
       {verticals.length === 0 ? (
         <div className="card">
@@ -728,7 +747,7 @@ function ProspectsTab({ clientId, verticalId }: { clientId: string; verticalId: 
                 <td><ScoreBar score={p.visibility_score} /></td>
                 <td>{p.location_count || '—'}</td>
                 <td>{p.contact_count}</td>
-                <td><StatusBadge status={p.status} /></td>
+                <td><StatusSelect clientId={clientId} prospect={p} onChanged={load} /></td>
               </tr>
             ))}
           </tbody>
@@ -748,6 +767,49 @@ function ScoreBar({ score }: { score: number }) {
       </div>
       <span style={{ fontSize: '0.78rem', color: '#64748b', minWidth: 36, textAlign: 'right' }}>{pct}%</span>
     </div>
+  )
+}
+
+const PROSPECT_STATUSES = ['scored', 'approved', 'diagnostic', 'sent', 'engaged', 'hot', 'proposal', 'won', 'cold', 'skipped'] as const
+// Statuses that get a timestamp column stamped when first set
+const STATUS_STAMP: Record<string, string> = { approved: 'approved_at', sent: 'sent_at', hot: 'hot_at', won: 'won_at', cold: 'lost_at', skipped: 'lost_at' }
+
+function StatusSelect({ clientId, prospect, onChanged }: { clientId: string; prospect: { id: string; status: string }; onChanged: () => void }) {
+  const { showToast } = useToast()
+  const [saving, setSaving] = useState(false)
+
+  const change = async (status: string) => {
+    if (status === prospect.status) return
+    setSaving(true)
+    const body: any = { status }
+    if (STATUS_STAMP[status]) body[STATUS_STAMP[status]] = Math.floor(Date.now() / 1000)
+    const res = await fetch(`/api/clients/${clientId}/discovery/prospects/${prospect.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    setSaving(false)
+    if (res.ok) { showToast(`Status → ${status}`); onChanged() }
+    else { const d = await res.json().catch(() => ({})); showToast(d.error || 'Update failed', 'error') }
+  }
+
+  const colour: Record<string, string> = {
+    scored: '#94a3b8', approved: '#3b82f6', diagnostic: '#7c3aed', sent: '#0891b2',
+    engaged: '#f59e0b', hot: '#dc2626', proposal: '#a855f7', won: '#16a34a',
+    cold: '#64748b', skipped: '#64748b',
+  }
+  const c = colour[prospect.status] ?? '#64748b'
+
+  return (
+    <select
+      value={prospect.status}
+      disabled={saving}
+      onChange={e => change(e.target.value)}
+      style={{
+        background: `${c}22`, color: c, border: `1px solid ${c}44`, borderRadius: 6,
+        padding: '3px 6px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+      }}
+    >
+      {PROSPECT_STATUSES.map(st => <option key={st} value={st}>{st}</option>)}
+    </select>
   )
 }
 
