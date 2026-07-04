@@ -52,6 +52,12 @@ See **[INSTALL.md](INSTALL.md)** for full setup, reverse proxy config (Caddy/ngi
 
 ---
 
+## Documentation
+
+Per-module guides live in **[docs/](docs/README.md)**: [Syndicate](docs/syndicate.md) (incl. Facebook/Instagram app setup) · [Discovery](docs/discovery.md) · [Site & pSEO](docs/sites.md) · [Citations](docs/citations.md) · [Respond](docs/respond.md) · [Settings & roles](docs/settings.md)
+
+---
+
 ## LLM support
 
 βWave works with any OpenAI-compatible API:
