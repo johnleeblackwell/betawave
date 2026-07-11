@@ -36,7 +36,7 @@ export function seedDemo(verbose = false): DemoSeedResult {
     tone_of_voice: 'confident, plain-spoken, anti-hype, builder-to-builder; owns its opinions',
     target_audience:
       'Small businesses, agencies, and indie founders tired of renting ten SaaS subscriptions. ' +
-      'Technical enough to run Docker, value privacy and ownership, want their marketing done without a £3k/mo agency.',
+      'Comfortable on a command line, value privacy and ownership, want their marketing done without a £3k/mo agency.',
     style_notes:
       'βWave is the marketing engine you install and OWN — content, publishing, social syndication and ' +
       'AI-citation tracking in one place, on your own server, with your own API keys. ' +
