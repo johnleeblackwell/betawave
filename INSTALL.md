@@ -4,34 +4,52 @@
 
 ## Requirements
 
-- [Docker](https://docs.docker.com/get-docker/) + Docker Compose (included with Docker Desktop)
+- [Node.js 20+](https://nodejs.org)
 - 1 GB RAM minimum, 2 GB recommended
 - At least one LLM API key (or a local model — see below)
 
-## Quick start
+## Quick start (Node)
 
 ```bash
 # 1. Clone the repo
 git clone https://github.com/johnleeblackwell/betawave bwave
 cd bwave
 
-# 2. Configure
-cp .env.example .env
-nano .env          # set APP_PASSWORD and at least one LLM key
+# 2. Install dependencies
+npm install
 
-# 3. Create the data directory
-mkdir -p data
+# 3. Configure
+cp .env.example .env
+nano .env          # add at least one LLM key (and APP_PASSWORD if you want a login screen)
 
 # 4. Start
-docker compose up -d
+npm start
 
 # 5. Open the app
 open http://localhost:3001
 ```
 
-Log in with a blank email and the `APP_PASSWORD` you set.
+If you set `APP_PASSWORD`, log in with a blank email and that password. If you left it blank, the app opens straight in.
 
 On first boot βWave seeds a **demo client** so you land in a working app, not an empty one — brand voice, a content library, and AI-citation tracking already set up. Explore it, then edit or delete it and add your own business. To start with a clean slate instead, set `SEED_DEMO=false` in `.env`.
+
+---
+
+## Quick start (Docker)
+
+Prefer a container instead of installing Node yourself?
+
+```bash
+git clone https://github.com/johnleeblackwell/betawave bwave
+cd bwave
+cp .env.example .env
+nano .env          # set APP_PASSWORD and at least one LLM key
+mkdir -p data
+docker compose up -d
+open http://localhost:3001
+```
+
+Requires [Docker](https://docs.docker.com/get-docker/) + Docker Compose (included with Docker Desktop). The rest of this guide (updates, backups, reverse proxy) applies to both paths — the update script and white-labelling rebuild step just use Docker commands, swap in `npm start` if you're running Node directly.
 
 ---
 
@@ -70,9 +88,16 @@ This backs up your database, pulls the latest code, rebuilds the container, and 
 
 ## Data
 
-All data lives in `./data/data.db` (SQLite). Back it up like any file:
+All data lives in a single SQLite file. Back it up like any file:
+
+- **Node path** — `./data.db` in the project root (no `DATABASE_PATH` set)
+- **Docker path** — `./data/data.db` (mounted volume; `DATABASE_PATH=/app/data/data.db` inside the container)
 
 ```bash
+# Node path
+cp data.db "data.db.$(date +%Y%m%d)"
+
+# Docker path
 cp data/data.db "data/data.db.$(date +%Y%m%d)"
 ```
 

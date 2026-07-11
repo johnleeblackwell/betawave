@@ -36,19 +36,20 @@ Install it on your own server. Bring your own API keys. Pay nothing per month. O
 
 ---
 
-## Quick start (Docker)
+## Quick start
 
 ```bash
 git clone https://github.com/johnleeblackwell/betawave.git
 cd betawave
+npm install
 cp .env.example .env
-# Edit .env — set APP_PASSWORD and at least one LLM key
-docker compose up -d
+# Edit .env — add at least one LLM key (and APP_PASSWORD if you want a login screen)
+npm start
 ```
 
-Open `http://localhost:3001` — log in with a blank email and your `APP_PASSWORD`.
+Open `http://localhost:3001`.
 
-See **[INSTALL.md](INSTALL.md)** for full setup, reverse proxy config (Caddy/nginx), custom LLM providers, and the update workflow.
+Prefer Docker? See **[INSTALL.md](INSTALL.md)** for the container path, plus reverse proxy config (Caddy/nginx), custom LLM providers, and the update workflow.
 
 ---
 
