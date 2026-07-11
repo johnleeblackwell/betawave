@@ -8,6 +8,7 @@
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite",
     "build": "vite build",
+    "prestart": "npm run build",
     "start": "tsx src/server/index.ts",
     "start:dev-server": "tsx src/server/index.ts",
     "agent:run": "npx tsx scripts/run-agent.ts",
