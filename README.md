@@ -17,7 +17,7 @@ Install it on your own server. Bring your own API keys. Pay nothing per month. O
 | Module | What you get |
 |--------|-------------|
 | **Content** | AI-generated social posts, blog drafts, and platform-native copy (X, LinkedIn, Instagram, TikTok, Facebook) with your brand voice |
-| **Syndicate** | Schedule and publish to X (Twitter), Telegram, Reddit, and Medium from one queue |
+| **Syndicate** | Schedule and publish to X (Twitter), Facebook, Instagram, LinkedIn, Telegram, Reddit, and Medium from one queue |
 | **Respond** | Human-gated X engagement — review AI-suggested replies and reposts before anything goes live |
 | **Citation Tracker** | Monitor how often your brand appears in AI assistant answers (ChatGPT, Perplexity, Gemini, Claude) |
 | **Discovery** | Prospect local businesses, score leads, generate outreach copy |

@@ -48,7 +48,7 @@ export async function postToDestination(dest: any, text: string, mediaUrls: stri
     return postToInstagram(dest, text, mediaUrls)
   }
   if (dest.platform === 'linkedin') {
-    throw new Error('LinkedIn posting needs an approved LinkedIn app + OAuth (Posts API). Scaffolded — add app credentials to enable.')
+    return postToLinkedIn(dest, text, mediaUrls)
   }
   if (dest.platform === 'youtube') {
     throw new Error('YouTube posting depends on the video-generation pipeline (upstream) + YouTube Data API OAuth. Scaffolded — enable once video gen lands.')
@@ -690,6 +690,99 @@ async function postToInstagram(dest: Destination & { account_id?: string }, text
   const id = String(published.id)
   const handle = (dest.handle || '').replace(/^@/, '')
   return { id, url: handle ? `https://www.instagram.com/${handle}/` : '' }
+}
+
+/**
+ * LinkedIn — Posts API (personal profile, `w_member_social` scope).
+ *
+ * Credential acquisition is a one-time manual OAuth 2.0 flow (LinkedIn has no
+ * in-browser token generator like Meta's Graph API Explorer, so βWave doesn't
+ * attempt to automate it): visit LinkedIn's authorize URL, approve, exchange
+ * the returned code for an access token, then resolve the person URN via the
+ * OpenID Connect /v2/userinfo endpoint. See docs/syndicate.md.
+ *
+ * Access tokens last ~60 days with no refresh token on standard self-serve
+ * apps — re-authorize when postToDestination starts throwing 401s.
+ */
+async function postToLinkedIn(dest: Destination & { account_id?: string }, text: string, mediaUrls: string[] = []): Promise<{ id: string; url: string }> {
+  const authorUrn = (dest.account_id || '').trim()
+  if (!authorUrn) throw new Error('LinkedIn destination needs account_id (your person URN, e.g. urn:li:person:abc123) — see docs/syndicate.md')
+  if (!dest.access_token) throw new Error('LinkedIn destination needs access_token (OAuth token with the w_member_social scope)')
+
+  const LI_VERSION = '202401'
+  const headers = {
+    'Authorization': `Bearer ${dest.access_token}`,
+    'Content-Type': 'application/json',
+    'LinkedIn-Version': LI_VERSION,
+    'X-Restli-Protocol-Version': '2.0.0',
+  }
+
+  let mediaId: string | null = null
+  if (mediaUrls.length > 0) {
+    try {
+      mediaId = await uploadImageToLinkedIn(authorUrn, dest.access_token, mediaUrls[0])
+    } catch (e: any) {
+      console.warn(`[syndication] LinkedIn image upload failed, posting text-only: ${e.message}`)
+    }
+  }
+
+  const body: any = {
+    author: authorUrn,
+    commentary: text,
+    visibility: 'PUBLIC',
+    distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
+    lifecycleState: 'PUBLISHED',
+    isReshareDisabledByAuthor: false,
+  }
+  if (mediaId) {
+    body.content = { media: { id: mediaId } }
+  }
+
+  const res = await fetch('https://api.linkedin.com/rest/posts', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`LinkedIn API HTTP ${res.status}: ${errText.slice(0, 300)}`)
+  }
+  // LinkedIn's Posts API returns the created post's id in a response header, not the body.
+  const postId = res.headers.get('x-restli-id') || res.headers.get('x-linkedin-id') || ''
+  if (!postId) throw new Error('LinkedIn API returned no post id in response headers')
+  return { id: postId, url: `https://www.linkedin.com/feed/update/${postId}/` }
+}
+
+/** Two-step image upload: initialize (get an upload URL + image URN), then PUT the bytes. */
+async function uploadImageToLinkedIn(authorUrn: string, accessToken: string, mediaUrl: string): Promise<string | null> {
+  const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'LinkedIn-Version': '202401',
+      'X-Restli-Protocol-Version': '2.0.0',
+    },
+    body: JSON.stringify({ initializeUploadRequest: { owner: authorUrn } }),
+  })
+  if (!initRes.ok) throw new Error(`init upload HTTP ${initRes.status}: ${(await initRes.text().catch(() => '')).slice(0, 200)}`)
+  const initData = await initRes.json() as any
+  const uploadUrl = initData?.value?.uploadUrl
+  const imageUrn = initData?.value?.image
+  if (!uploadUrl || !imageUrn) throw new Error('LinkedIn init upload returned no uploadUrl/image urn')
+
+  const imgRes = await fetch(mediaUrl, { redirect: 'follow' })
+  if (!imgRes.ok) throw new Error(`download HTTP ${imgRes.status}`)
+  const arrayBuf = await imgRes.arrayBuffer()
+
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Authorization': `Bearer ${accessToken}` },
+    body: Buffer.from(arrayBuf),
+  })
+  if (!putRes.ok) throw new Error(`image PUT HTTP ${putRes.status}`)
+
+  return imageUrn
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
