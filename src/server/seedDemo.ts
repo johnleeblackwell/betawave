@@ -658,12 +658,14 @@ export function seedDemo(verbose = false): DemoSeedResult {
 }
 
 /**
- * Auto-seed on first boot: only runs when the database has no clients yet,
- * and never if SEED_DEMO=false. Keeps a fresh install from being an empty shell.
+ * Auto-seed on first boot: OFF by default. A fresh install is a genuine blank
+ * slate — no synthetic data to second-guess. Opt in with SEED_DEMO=true if you
+ * specifically want a populated example client (e.g. for a recorded demo).
+ * Only runs when the database has no clients yet, regardless.
  */
 export function maybeSeedDemo(): void {
   try {
-    if (String(process.env.SEED_DEMO || '').toLowerCase() === 'false') return
+    if (String(process.env.SEED_DEMO || '').toLowerCase() !== 'true') return
     const n = (db.prepare('SELECT COUNT(*) AS c FROM clients').get() as any).c
     if (n > 0) return
     const r = seedDemo(false)

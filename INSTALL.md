@@ -31,7 +31,7 @@ open http://localhost:3001
 
 If you set `APP_PASSWORD`, log in with a blank email and that password. If you left it blank, the app opens straight in.
 
-On first boot βWave seeds a **demo client** so you land in a working app, not an empty one — brand voice, a content library, and AI-citation tracking already set up. Explore it, then edit or delete it and add your own business. To start with a clean slate instead, set `SEED_DEMO=false` in `.env`.
+A fresh install is a genuine blank slate — no synthetic data, nothing to delete before you add your own business. If you specifically want a populated example client (e.g. to record a demo), set `SEED_DEMO=true` in `.env`.
 
 ---
 
