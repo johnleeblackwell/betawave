@@ -101,11 +101,18 @@ function providerEnvKey(p: LLMProvider): string {
   }
 }
 
-/** True when the error looks like Anthropic's 529 overloaded response. */
-function isAnthropicOverloaded(e: any): boolean {
-  if (e?.status === 529) return true
-  const msg: string = e?.message || ''
-  return msg.includes('529') || msg.toLowerCase().includes('overloaded_error') || msg.toLowerCase().includes('overloaded')
+/** True when Anthropic is temporarily unusable — either overloaded (529) or the
+ *  configured key has hit its usage/quota limit (400 invalid_request_error).
+ *  Either way, the right move is the same: fall back to Big Pickle rather than
+ *  fail outright. */
+function isAnthropicUnavailable(e: any): boolean {
+  if (e?.status === 529 || e?.status === 400) {
+    const msg: string = e?.message || ''
+    const lower = msg.toLowerCase()
+    if (lower.includes('529') || lower.includes('overloaded')) return true
+    if (lower.includes('usage limit') || lower.includes('quota') || lower.includes('rate limit')) return true
+  }
+  return false
 }
 
 /** One-shot completion. Returns text + token usage + estimated GBP cost. */
@@ -133,8 +140,8 @@ export async function generate(client: ClientLLMConfig | null, opts: GenerateOpt
       }
     } catch (e: any) {
       const zenKey = process.env.OPENCODE_ZEN_API_KEY
-      if (isAnthropicOverloaded(e) && zenKey) {
-        console.warn('[llm] Anthropic overloaded — falling back to Big Pickle (opencode zen)')
+      if (isAnthropicUnavailable(e) && zenKey) {
+        console.warn(`[llm] Anthropic unavailable (${e?.status}) — falling back to Big Pickle (opencode zen): ${e?.message || ''}`)
         return generateOpenAICompat({
           provider: 'zen',
           model: DEFAULT_MODEL.zen,

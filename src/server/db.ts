@@ -929,6 +929,22 @@ ensureCol('dl_organizations',     'client_id', `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_prospects',         'client_id', `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_visibility_scores', 'client_id', `TEXT NOT NULL DEFAULT ''`)
 
+// Structured rating/review columns (previously buried in free-text notes from
+// LeadSwift imports) + a coarse "have we already searched Sales Navigator for
+// a contact here" flag, so a 0-contact org can be told apart from a
+// searched-and-came-up-empty one instead of both looking identical.
+ensureCol('dl_organizations', 'google_rating',  `REAL`)
+ensureCol('dl_organizations', 'google_reviews', `INTEGER`)
+ensureCol('dl_organizations', 'search_status',  `TEXT NOT NULL DEFAULT 'not_searched'`)
+
+// LinkedIn outreach tracking — no send API exists for LinkedIn DMs (self-serve
+// apps can't call one), so this only tracks the draft/copy/send-yourself flow:
+// generate a personalised message, copy it, open the contact's profile, send
+// it by hand, mark it sent. Never automates the actual send.
+ensureCol('dl_contacts', 'outreach_status',  `TEXT NOT NULL DEFAULT 'not_contacted'`)
+ensureCol('dl_contacts', 'outreach_message', `TEXT NOT NULL DEFAULT ''`)
+ensureCol('dl_contacts', 'outreach_sent_at', `INTEGER`)
+
 // Deferred indexes — must run AFTER the ensureCol back-fill so the columns exist
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_verticals_client    ON verticals(client_id);

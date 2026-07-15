@@ -275,7 +275,8 @@ router.patch('/organizations/:id', (req, res) => {
   if (!o) return res.status(404).json({ error: 'Organisation not found' })
 
   const fields = ['name', 'website', 'domain', 'location_count', 'hq_location',
-                  'hq_postcode', 'companies_house_number', 'sub_segment', 'status', 'notes']
+                  'hq_postcode', 'companies_house_number', 'sub_segment', 'status', 'notes',
+                  'google_rating', 'google_reviews', 'search_status']
   const updates: string[] = []
   const values: any[] = []
   for (const f of fields) {
@@ -426,6 +427,62 @@ router.delete('/contacts/:id', (req, res) => {
 
   db.prepare(`DELETE FROM dl_contacts WHERE id = ?`).run(id)
   res.json({ ok: true })
+})
+
+// ─── LinkedIn outreach — draft + copy + send-yourself (no send API exists) ───
+
+router.post('/contacts/:id/generate-message', async (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(clientId) as any
+  if (!client) return res.status(404).json({ error: 'Client not found' })
+
+  const row = db.prepare(`
+    SELECT c.*, o.name AS org_name, o.sub_segment AS org_segment, o.hq_location AS org_location
+    FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId) as any
+  if (!row) return res.status(404).json({ error: 'Contact not found' })
+
+  const system = `You write short, blunt, honest first-message LinkedIn DMs for a new 1st-degree connection.
+Voice: confident, plain-spoken, anti-hype, builder-to-builder, owns its opinions. Never use fake-soft framing
+like "quick one" or "just wondering" or a manufactured qualifying question — say what it is plainly.
+Structure: thank them for connecting, one line naming what you built and who it's for (replaces the pile of
+marketing SaaS subscriptions businesses bleed money on every month — free forever, self-hosted, no catch),
+then a low-pressure close ("worth a look if useful, ignore if not" or similar — vary the wording, never copy
+a template verbatim). Under 400 characters. No emojis. No hashtags. Output ONLY the message text, nothing else.`
+
+  const prompt = `Write the message for:
+Name: ${row.full_name}
+Role: ${row.role || 'unknown role'}
+Company: ${row.org_name}${row.org_segment ? ` (${row.org_segment})` : ''}
+Include a link placeholder exactly as: [link]`
+
+  try {
+    const result = await generate(client, { prompt, system, max_tokens: 300, temperature: 0.9 })
+    const message = result.text.trim()
+    db.prepare(`UPDATE dl_contacts SET outreach_message = ? WHERE id = ?`).run(message, id)
+    res.json({ message })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.post('/contacts/:id/mark-messaged', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const ok = db.prepare(`
+    SELECT 1 FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId)
+  if (!ok) return res.status(404).json({ error: 'Contact not found' })
+
+  const { message } = req.body as { message?: string }
+  db.prepare(`
+    UPDATE dl_contacts SET outreach_status = 'messaged', outreach_sent_at = unixepoch(), outreach_message = COALESCE(?, outreach_message)
+    WHERE id = ?
+  `).run(message ?? null, id)
+  res.json(db.prepare(`SELECT * FROM dl_contacts WHERE id = ?`).get(id))
 })
 
 // ─── Prospects + Visibility ──────────────────────────────────────────────────

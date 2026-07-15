@@ -48,6 +48,9 @@ interface Contact {
   source: string
   source_confidence: number
   status: string
+  outreach_status?: string
+  outreach_message?: string
+  outreach_sent_at?: number | null
 }
 
 interface Prospect {
@@ -644,7 +647,7 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
         </div>
       ) : (
         <table className="table">
-          <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Org</th><th>Source</th></tr></thead>
+          <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Org</th><th>Source</th><th>LinkedIn outreach</th></tr></thead>
           <tbody>
             {orgs.flatMap(o => (contactsByOrg[o.id] || []).map(c => (
               <tr key={c.id}>
@@ -653,12 +656,93 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
                 <td><span style={{ fontSize: '0.82rem' }}>{c.email}</span></td>
                 <td><span className="tag">{o.name}</span></td>
                 <td><span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.source} ({c.source_confidence}%)</span></td>
+                <td><OutreachCell clientId={clientId} contact={c} onUpdated={load} /></td>
               </tr>
             )))}
           </tbody>
         </table>
       )}
     </div>
+  )
+}
+
+// ─── LinkedIn outreach: generate / copy / open profile / mark sent ─────────────────────────────
+// LinkedIn has no self-serve send API — this drafts a personalised message and
+// gets it one click from being sent, but a human always clicks Send in LinkedIn
+// itself. Never automates the actual send (that's a ToS/ban risk on a real account).
+function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; contact: Contact; onUpdated: () => void }) {
+  const { showToast } = useToast()
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState(contact.outreach_message || '')
+  const [loading, setLoading] = useState(false)
+
+  const generate = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/generate-message`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'generate failed')
+      setDraft(data.message)
+    } catch (e: any) {
+      showToast(`Couldn't generate message: ${e.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }, [clientId, contact.id, showToast])
+
+  const openPanel = () => {
+    setOpen(true)
+    if (!draft) generate()
+  }
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(draft)
+      showToast('Copied — paste it into LinkedIn and hit send')
+    } catch {
+      showToast('Copy failed — select the text manually')
+    }
+  }
+
+  const markSent = async () => {
+    const r = await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/mark-messaged`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: draft }),
+    })
+    if (r.ok) { showToast('Marked as messaged'); setOpen(false); onUpdated() }
+  }
+
+  if (contact.outreach_status === 'messaged') {
+    return <span className="tag" style={{ background: 'var(--accent-soft, #e6f7f0)' }}>✓ messaged</span>
+  }
+
+  return (
+    <>
+      <button className="btn btn-ghost btn-sm" onClick={openPanel} disabled={!contact.linkedin_url}
+        title={contact.linkedin_url ? '' : 'No LinkedIn URL on this contact'}>
+        ✉️ Message
+      </button>
+      {open && (
+        <div className="modal-overlay" onClick={() => setOpen(false)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0 }}>Message {contact.full_name}</h3>
+            <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: -8 }}>
+              Draft it, copy it, open their profile, paste and send yourself — βWave never sends LinkedIn messages automatically.
+            </p>
+            <textarea className="form-input" rows={6} value={draft} onChange={e => setDraft(e.target.value)}
+              placeholder={loading ? 'Generating…' : ''} disabled={loading} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <button className="btn btn-ghost btn-sm" onClick={generate} disabled={loading}>↻ Regenerate</button>
+              <button className="btn btn-primary btn-sm" onClick={copy} disabled={loading || !draft}>📋 Copy</button>
+              <a className="btn btn-ghost btn-sm" href={contact.linkedin_url} target="_blank" rel="noopener noreferrer">Open LinkedIn →</a>
+              <button className="btn btn-ghost btn-sm" onClick={markSent} disabled={loading || !draft}>✓ Mark as sent</button>
+            </div>
+            <div style={{ marginTop: 12, textAlign: 'right' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 
