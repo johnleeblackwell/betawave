@@ -42,6 +42,16 @@ Requirements are stricter — Meta's rules, not ours:
 - **Instagram refuses text-only posts.** If a source item has no image, βWave automatically sources a free stock photo (Pexels → Pixabay → Unsplash) matched to the post title. Configure stock API keys in Settings for best results.
 - Captions never include links (they're not clickable on IG); the rewrite engine knows this and writes hook-first captions with hashtags instead.
 
+### Sourcing content FROM Instagram (two options)
+
+If you want to pull your own Instagram posts to rewrite and repost elsewhere, there are two source types — pick based on whether you administratively control the account:
+
+**`ig_graph` — your own account, free.** Uses the same Meta Business app + Page token as posting *to* Instagram above (`me/accounts?fields=instagram_business_account` for the IG Business user ID, same long-lived Page token). No per-call cost, fully within Instagram's terms, but only works for accounts you actually manage.
+
+**`apify_instagram` — any public account, paid.** Uses [Apify](https://apify.com)'s Instagram Profile Scraper to read a public profile you don't administratively control (e.g. for pulling inspiration/reference content, or when account access genuinely isn't available to you). Costs ~£0.001–0.005 per call — a handful of sources polling regularly can exceed Apify's free $5/mo tier fast; the Starter plan ($29/mo prepaid) is worth it once you're running more than one or two sources this way.
+
+Rule of thumb: if you can log into the account's Meta Business settings, use `ig_graph`. If you can't (an agency running someone else's account, a client who won't grant access), `apify_instagram` is the only option.
+
 ### LinkedIn (personal profile)
 LinkedIn has no in-browser token generator like Meta's Graph API Explorer, so getting your first token is a one-time manual OAuth flow:
 

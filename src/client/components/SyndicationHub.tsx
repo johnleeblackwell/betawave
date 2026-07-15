@@ -318,6 +318,7 @@ function SourcesTab({ clientId, sources, onChange }: { clientId: string; sources
 
   const submit = async () => {
     if (form.source_type === 'apify_instagram' && !form.api_token) return showToast('Apify API token required', 'error')
+    if (form.source_type === 'ig_graph' && !form.api_token) return showToast('Page access token required', 'error')
     setSaving(true)
     const res = await fetch(`/api/clients/${clientId}/syndication/sources`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(form),
@@ -383,7 +384,7 @@ function SourcesTab({ clientId, sources, onChange }: { clientId: string; sources
               </td></tr>
             ) : (
               <tr key={s.id}>
-                <td><span className="tag" style={{ fontSize: '0.68rem' }}>{s.source_type === 'apify_instagram' ? '🎯 Apify IG' : '📡 RSS'}</span></td>
+                <td><span className="tag" style={{ fontSize: '0.68rem' }}>{s.source_type === 'apify_instagram' ? '🎯 Apify IG' : s.source_type === 'ig_graph' ? '📘 IG Graph (free)' : '📡 RSS'}</span></td>
                 <td><strong>{s.label}</strong></td>
                 <td>{s.handle || '—'}</td>
                 <td style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.url}</td>
@@ -405,6 +406,9 @@ function SourcesTab({ clientId, sources, onChange }: { clientId: string; sources
 
 function SourceFields({ form, onChange, editMode = false }: { form: SourceFormState; onChange: (f: SourceFormState) => void; editMode?: boolean }) {
   const isApify = form.source_type === 'apify_instagram'
+  const isIgGraph = form.source_type === 'ig_graph'
+  const urlLabel = isApify ? 'Instagram handle *' : isIgGraph ? 'IG Business user ID *' : 'RSS feed URL *'
+  const urlPlaceholder = isApify ? 'myhandle (no @)' : isIgGraph ? '17841400000000000' : 'https://example.com/feed/'
   return (
     <>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
@@ -412,20 +416,21 @@ function SourceFields({ form, onChange, editMode = false }: { form: SourceFormSt
           <label className="form-label">Source type</label>
           <select className="form-input" value={form.source_type} onChange={e => onChange({ ...form, source_type: e.target.value })}>
             <option value="rss">📡 RSS feed (WordPress, Substack, blog)</option>
-            <option value="apify_instagram">🎯 Apify · Instagram Profile Scraper</option>
+            <option value="ig_graph">📘 Instagram Graph API — your own account, free</option>
+            <option value="apify_instagram">🎯 Apify · Instagram Profile Scraper (any public account, paid)</option>
           </select>
         </div>
         <div>
           <label className="form-label">Label *</label>
           <input className="form-input" value={form.label} onChange={e => onChange({ ...form, label: e.target.value })}
-            placeholder={isApify ? 'My brand IG' : 'My blog feed'} />
+            placeholder={isApify || isIgGraph ? 'My brand IG' : 'My blog feed'} />
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         <div>
-          <label className="form-label">{isApify ? 'Instagram handle *' : 'RSS feed URL *'}</label>
+          <label className="form-label">{urlLabel}</label>
           <input className="form-input" value={form.url} onChange={e => onChange({ ...form, url: e.target.value })}
-            placeholder={isApify ? 'myhandle (no @)' : 'https://example.com/feed/'} />
+            placeholder={urlPlaceholder} />
         </div>
         <div>
           <label className="form-label">Display handle (optional)</label>
@@ -437,6 +442,13 @@ function SourceFields({ form, onChange, editMode = false }: { form: SourceFormSt
           <label className="form-label">Apify API token {editMode ? '(leave blank to keep existing)' : '*'}</label>
           <input className="form-input" type="password" value={form.api_token} onChange={e => onChange({ ...form, api_token: e.target.value })} placeholder="apify_api_..." />
           <div className="form-hint">From <a href="https://apify.com" target="_blank" rel="noreferrer">apify.com</a> → Settings → Integrations → API tokens</div>
+        </div>
+      )}
+      {isIgGraph && (
+        <div className="form-group" style={{ marginBottom: 12 }}>
+          <label className="form-label">Page access token {editMode ? '(leave blank to keep existing)' : '*'}</label>
+          <input className="form-input" type="password" value={form.api_token} onChange={e => onChange({ ...form, api_token: e.target.value })} placeholder="EAAG..." />
+          <div className="form-hint">Only works for accounts you administratively control (Business/Creator, linked to a Facebook Page). Same long-lived Page token used for an Instagram destination — free, no per-call cost.</div>
         </div>
       )}
     </>

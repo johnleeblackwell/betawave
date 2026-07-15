@@ -302,6 +302,8 @@ async function fetchNewItems(source: Source, routeId: string): Promise<FeedItem[
     items = await fetchFromRSS(source)
   } else if (source.source_type === 'apify_instagram') {
     items = await fetchFromApifyInstagram(source)
+  } else if (source.source_type === 'ig_graph') {
+    items = await fetchFromIgGraph(source)
   } else {
     return []
   }
@@ -417,6 +419,53 @@ async function fetchFromApifyInstagram(source: Source): Promise<FeedItem[]> {
       content:  caption,
       pub_date: ts,
       media_urls: mediaUrls.slice(0, 4),
+    }
+  })
+}
+
+/**
+ * Instagram Graph API — read your OWN account's recent media, free.
+ *
+ * For source_type='ig_graph':
+ *   - source.url       = the IG Business user ID (numeric — same id used as
+ *                         `account_id` on an Instagram/Facebook destination,
+ *                         from Graph Explorer: me/accounts?fields=instagram_business_account)
+ *   - source.api_token = a long-lived Page access token with instagram_basic
+ *   - source.handle    = cosmetic only (e.g. '@yourbrand')
+ *
+ * This only works for accounts you administratively control (Business/Creator,
+ * linked to a Facebook Page) — for public accounts you don't own, there is no
+ * free official read path; that's what apify_instagram is for.
+ */
+async function fetchFromIgGraph(source: Source): Promise<FeedItem[]> {
+  if (!source.api_token) throw new Error('ig_graph source needs a Page access token in api_token')
+  const igUserId = source.url.trim()
+  if (!igUserId) throw new Error('ig_graph source needs the IG Business user ID in url')
+
+  const fields = 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp'
+  const endpoint = `https://graph.facebook.com/v19.0/${igUserId}/media?fields=${fields}&limit=10&access_token=${encodeURIComponent(source.api_token)}`
+
+  const res = await fetch(endpoint)
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '')
+    throw new Error(`Instagram Graph API HTTP ${res.status}: ${errText.slice(0, 300)}`)
+  }
+
+  const data = await res.json() as any
+  const posts: any[] = Array.isArray(data?.data) ? data.data : []
+
+  return posts.map(p => {
+    const ts = p.timestamp ? Math.floor(new Date(p.timestamp).getTime() / 1000) : undefined
+    // Video posts have no media_url for the video itself in this field set —
+    // fall back to the thumbnail so there's still an image to attach.
+    const mediaUrl = p.media_type === 'VIDEO' ? p.thumbnail_url : p.media_url
+    return {
+      id:       p.id,
+      url:      p.permalink || '',
+      title:    `@${source.handle?.replace(/^@/, '') || igUserId} on Instagram`,
+      content:  (p.caption || '').slice(0, 2000),
+      pub_date: ts,
+      media_urls: mediaUrl ? [mediaUrl] : [],
     }
   })
 }
@@ -1094,6 +1143,7 @@ export async function previewRoute(routeId: string): Promise<{
     // Live-fetch path for Instagram / other real-time sources
     let items: FeedItem[] = []
     if (source.source_type === 'apify_instagram') items = await fetchFromApifyInstagram(source)
+    else if (source.source_type === 'ig_graph') items = await fetchFromIgGraph(source)
     else return { ok: false, error: `Unsupported source type: ${source.source_type}` }
 
     if (items.length === 0) return { ok: false, error: 'No items in feed' }

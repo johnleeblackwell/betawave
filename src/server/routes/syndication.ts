@@ -43,6 +43,9 @@ router.post('/sources', (req, res) => {
   if (source_type === 'apify_instagram' && !api_token?.trim()) {
     return res.status(400).json({ error: 'Apify API token required for apify_instagram source type' })
   }
+  if (source_type === 'ig_graph' && !api_token?.trim()) {
+    return res.status(400).json({ error: 'Page access token required for ig_graph source type (url = IG Business user ID)' })
+  }
   const id = crypto.randomUUID()
   db.prepare(`
     INSERT INTO syndication_sources (id, client_id, label, source_type, url, handle, api_token)
