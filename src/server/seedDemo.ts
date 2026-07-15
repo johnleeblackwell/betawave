@@ -22,6 +22,8 @@ export interface DemoSeedResult { client: string; queries: number; competitors: 
 
 export function seedDemo(verbose = false): DemoSeedResult {
   const log = (...a: any[]) => { if (verbose) console.log(...a) }
+  const now = Math.floor(Date.now() / 1000)
+  const DAY = 86400
 
   // ─── 1. Demo client (brand DNA) ─────────────────────────────────────────────
   const clientFields = {
@@ -81,6 +83,8 @@ export function seedDemo(verbose = false): DemoSeedResult {
     { text: 'self-hosted marketing automation with bring-your-own API keys', category: 'discovery', priority: 2 },
     { text: 'cheapest way to automate content and social posting for a small business', category: 'discovery', priority: 1 },
     { text: 'marketing tool that runs on a local LLM for privacy', category: 'discovery', priority: 1 },
+    { text: 'alternative to hiring a marketing agency for a small business', category: 'discovery', priority: 2 },
+    { text: 'AGPL open source marketing software you can self host', category: 'discovery', priority: 1 },
   ]
   const hasQuery = db.prepare('SELECT 1 FROM tracked_queries WHERE brand_id = ? AND text = ?')
   const insertQuery = db.prepare(`INSERT INTO tracked_queries (id, brand_id, text, category, priority) VALUES (?, ?, ?, ?, ?)`)
@@ -193,10 +197,13 @@ export function seedDemo(verbose = false): DemoSeedResult {
   // Destinations are unconfigured (no credentials) — this shows the intended shape of
   // the feature honestly rather than faking a live connection. Clicking "Test" on any
   // of them will fail with a clear "needs credentials" message, same as a fresh install.
-  const hasSynSource = db.prepare('SELECT 1 FROM syndication_sources WHERE client_id = ? AND url = ?')
-  if (!hasSynSource.get(client.id, 'https://bwave-blog.netlify.app/rss.xml')) {
+  let synSource = db.prepare('SELECT * FROM syndication_sources WHERE client_id = ? AND url = ?')
+    .get(client.id, 'https://bwave-blog.netlify.app/rss.xml') as any
+  if (!synSource) {
+    const sid = uuid()
     db.prepare(`INSERT INTO syndication_sources (id, client_id, label, source_type, url, active) VALUES (?, ?, ?, 'rss', ?, 1)`)
-      .run(uuid(), client.id, 'βWave blog', 'https://bwave-blog.netlify.app/rss.xml')
+      .run(sid, client.id, 'βWave blog', 'https://bwave-blog.netlify.app/rss.xml')
+    synSource = { id: sid }
     log('✅ Syndicate source: βWave blog RSS')
   }
 
@@ -210,11 +217,79 @@ export function seedDemo(verbose = false): DemoSeedResult {
   const hasDest = db.prepare('SELECT 1 FROM syndication_destinations WHERE client_id = ? AND label = ?')
   const insertDest = db.prepare(`INSERT INTO syndication_destinations (id, client_id, label, platform, handle, active) VALUES (?, ?, ?, ?, ?, 0)`)
   let dAdded = 0
+  const destIds: Record<string, string> = {}
   for (const d of demoDestinations) {
-    if (hasDest.get(client.id, d.label)) continue
-    insertDest.run(uuid(), client.id, d.label, d.platform, d.handle); dAdded++
+    let row = db.prepare('SELECT id FROM syndication_destinations WHERE client_id = ? AND label = ?').get(client.id, d.label) as any
+    if (!row) {
+      const did = uuid()
+      insertDest.run(did, client.id, d.label, d.platform, d.handle)
+      row = { id: did }; dAdded++
+    }
+    destIds[d.platform] = row.id
   }
   log(`✅ Syndicate destinations: ${dAdded} added (unconfigured — need real credentials to activate)`)
+
+  // Routes + posting history — the destinations above are unconfigured for FUTURE
+  // posts, but showing PAST activity as having happened is honest: it's clearly
+  // historical (dated weeks ago), not a claim that the destination is live today.
+  const hasRoute = db.prepare('SELECT 1 FROM syndication_routes WHERE client_id = ? AND destination_id = ?')
+  const insertRoute = db.prepare(`INSERT INTO syndication_routes (id, client_id, source_id, destination_id, active) VALUES (?, ?, ?, ?, 1)`)
+  const routeIds: Record<string, string> = {}
+  for (const platform of ['x', 'linkedin', 'facebook', 'instagram', 'telegram']) {
+    const destId = destIds[platform]
+    let row = db.prepare('SELECT id FROM syndication_routes WHERE client_id = ? AND destination_id = ?').get(client.id, destId) as any
+    if (!row) {
+      const rid = uuid()
+      insertRoute.run(rid, client.id, synSource.id, destId)
+      row = { id: rid }
+    }
+    routeIds[platform] = row.id
+  }
+
+  const rewriteSamples: Record<string, string[]> = {
+    x: [
+      'Own your marketing engine. Don\'t rent it. Free, self-hosted, AGPL-3.0. betawave.co.uk',
+      'Citation tracking against ChatGPT, Claude, Gemini and Perplexity — weekly, automatic, yours. betawave.co.uk',
+      'Replaced 5 SaaS subscriptions with one self-hosted engine. Here\'s what changed: betawave.co.uk',
+    ],
+    linkedin: [
+      'Most marketing stacks are five rented tools bleeding a business dry every month. We built one that replaces them all — free, self-hosted, forever.',
+      'Ten weeks of AI-citation data: mention rate went from 15% to 67%. Full breakdown on the blog.',
+    ],
+    facebook: [
+      'Running a business? You\'re probably paying for a pile of marketing tools right now. Here\'s the free alternative.',
+    ],
+    instagram: [
+      'Own your stack. No landlord, no per-seat tax, no rent. 🔓 Link in bio.',
+    ],
+    telegram: [
+      'New post: what actually happens when you self-host your marketing stack. Link in the channel description.',
+    ],
+  }
+  const hasSyndication = db.prepare('SELECT COUNT(*) c FROM syndications WHERE client_id = ?').get(client.id) as any
+  let synAdded = 0
+  if (hasSyndication.c === 0) {
+    const insertSyndication = db.prepare(`
+      INSERT INTO syndications (id, client_id, route_id, source_id, destination_id, source_item_id, source_url, rewritten_text, posted_id, posted_url, status, posted_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    for (const platform of ['x', 'linkedin', 'facebook', 'instagram', 'telegram']) {
+      const texts = rewriteSamples[platform]
+      const perPlatform = platform === 'x' ? 9 : platform === 'linkedin' ? 6 : 4
+      for (let i = 0; i < perPlatform; i++) {
+        const postedAt = now - (2 + i * 5 + (platform === 'x' ? 0 : 3)) * DAY
+        const failed = i === perPlatform - 1 && platform === 'instagram' // one realistic failure
+        insertSyndication.run(
+          uuid(), client.id, routeIds[platform], synSource.id, destIds[platform],
+          `demo-item-${platform}-${i}`, 'https://bwave-blog.netlify.app/', texts[i % texts.length],
+          failed ? '' : `demo-${uuid().slice(0, 8)}`, failed ? '' : `https://example.com/${platform}/posts/demo-${i}`,
+          failed ? 'failed' : 'posted', postedAt, postedAt,
+        )
+        synAdded++
+      }
+    }
+    log(`✅ Syndicate history: ${synAdded} posted items across 5 platforms over the last ~7 weeks`)
+  }
 
   // ─── 6. Schedule — a weekly cadence so the Schedule tab shows a live rhythm ─
   const hasSchedule = db.prepare('SELECT 1 FROM schedules WHERE client_id = ? AND content_type = ?')
@@ -328,15 +403,19 @@ export function seedDemo(verbose = false): DemoSeedResult {
 
   // ─── 9. Discovery volume — enough orgs/contacts/prospects for a real-feeling ──
   // pipeline (a Zoho-style demo shows depth and history, not three sample rows).
-  const now = Math.floor(Date.now() / 1000)
-  const DAY = 86400
-
   const moreOrgNames = [
     'Aldergate Fitness Studios', 'Brightwell Vets Group', 'Cascade Plumbing & Heating',
     'Driftwood Coffee Roasters', 'Elmsworth Legal Partners', 'Fernbridge Architects',
     'Granite Peak Landscaping', 'Hollowmere Insurance Brokers', 'Ironwood Furniture Co',
     'Juniper Lane Bakery', 'Kestrel Media Group', 'Lyndhurst Accountants',
     'Millbrook Physiotherapy', 'Northgate Motors', 'Oakfield Veterinary Clinic',
+    'Pemberton Print & Design', 'Quayside Marine Supplies', 'Rosecroft Care Homes',
+    'Silverline Logistics', 'Thistledown Nursery Group', 'Underwood Solicitors',
+    'Vantage Point Consulting', 'Westbrook Dental Practice', 'Yarrow Wellness Spa',
+    'Zetland Software Studio', 'Ashcombe Interiors', 'Blackwood Brewing Co',
+    'Copperfield Financial Advisers', 'Duskwood Records & Media', 'Ebbtide Surf & Outdoor',
+    'Foxglove Florists', 'Greymoor Security Systems', 'Hartley Removals & Storage',
+    'Ivybridge Language School', 'Jasperwood Woodworking',
   ]
   const segments = ['Retail / e-commerce', 'Healthcare', 'Professional services', 'Creative agency', 'Trades & home services']
   const insertOrg2 = db.prepare(`
@@ -481,14 +560,48 @@ export function seedDemo(verbose = false): DemoSeedResult {
       body: 'Local models are cheaper and fully private, but not yet as capable for long-form brand-voice writing. Best used for classification and short-form tasks, Claude or GPT-4o for the long-form work.' },
     { title: 'Scheduled: what we are shipping next quarter', excerpt: 'YouTube syndication, Discord, and a real LinkedIn Company Page flow.', status: 'scheduled',
       body: 'LinkedIn personal-profile posting is live today. Company Page posting needs LinkedIn'+"'"+'s Community Management API review, which we'+"'"+'ve submitted — no fixed timeline, but it'+"'"+'s in progress.' },
+    { title: 'How we price Done-For-You without undercutting the free version', status: 'published',
+      excerpt: 'The software stays free forever. Here is what you actually pay for if you'+"'"+'d rather not run it yourself.',
+      body: 'A founding-rate DFY client gets a dedicated operator, not just a support ticket queue. That distinction is the entire pitch — you'+"'"+'re paying for a human, not for access to software that was always free.' },
+    { title: 'A/B tested: does an AI-citation stat convert better than a features list?', status: 'published',
+      excerpt: 'We ran both versions of our own homepage. Here'+"'"+'s what won.',
+      body: 'The concrete "67% mention rate, up from 15%" number consistently out-converted a generic bullet list of features — specificity beats breadth every time in this category.' },
+    { title: 'Reading list: everything we used to build the Discovery module', status: 'draft',
+      excerpt: 'The papers, APIs and prior art behind the visibility-scoring approach.',
+      body: 'Nothing here is novel research — it'+"'"+'s a pragmatic combination of existing signals (review count, response time, content freshness) weighted for a specific use case: finding businesses who don'+"'"+'t yet know they'+"'"+'re invisible.' },
+    { title: 'Why Respond drafts replies but never auto-sends them', status: 'published',
+      excerpt: 'The one place in βWave where a human is required, on purpose.',
+      body: 'Auto-replying to public comments at brand level is exactly the kind of thing that goes wrong in ways nobody notices until it'+"'"+'s screenshotted. AI drafts, a human approves — every time, no exceptions.' },
+    { title: 'What "self-hosted" actually means for your data, concretely', status: 'draft',
+      excerpt: 'Not a marketing claim — a specific list of what does and doesn'+"'"+'t leave your server.',
+      body: 'Your content, contacts, and citation history live in one SQLite file on your machine. The only things that leave your server are the specific API calls you configure — and you can point those at a local model too.' },
+  ]
+  const moreNewsletters = [
+    { title: 'This week in βWave: 10 weeks of citation data, one chart', status: 'published',
+      excerpt: 'The mention-rate trend from 15% to 67%, and what actually moved it.',
+      body: 'The single biggest driver wasn'+"'"+'t volume of content — it was specificity. Posts naming exact competitor tools and exact price points got cited far more often than generic "best marketing software" pieces.' },
+    { title: 'Monthly digest: Discovery pipeline update', status: 'published',
+      excerpt: '34 organisations tracked, 18 prospects scored, 2 won.',
+      body: 'The pipeline moves slower than a cold-outreach spreadsheet but converts better — every prospect here was pre-qualified by an actual visibility gap, not a purchased list.' },
+    { title: 'Founder update: why we open-sourced the whole thing', status: 'draft',
+      excerpt: 'A short note on the AGPL decision and what it means for you.',
+      body: 'Renting software is a bet that the vendor stays aligned with you forever. Owning it removes the bet entirely — that'+"'"+'s the whole thesis behind βWave.' },
   ]
   const insertPost2 = db.prepare(`INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query, created_at) VALUES (?, ?, 'blog', ?, ?, ?, ?, '', ?)`)
+  const insertNewsletter = db.prepare(`INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query, created_at) VALUES (?, ?, 'newsletter', ?, ?, ?, ?, '', ?)`)
   let mpAdded = 0
   for (let i = 0; i < moreContentPosts.length; i++) {
     const p = moreContentPosts[i]
     if (db.prepare('SELECT 1 FROM content WHERE client_id = ? AND title = ?').get(client.id, p.title)) continue
     const createdAt = now - (5 + i * 6) * DAY
     insertPost2.run(uuid(), client.id, p.title, p.body, p.excerpt, p.status, createdAt)
+    mpAdded++
+  }
+  for (let i = 0; i < moreNewsletters.length; i++) {
+    const p = moreNewsletters[i]
+    if (db.prepare('SELECT 1 FROM content WHERE client_id = ? AND title = ?').get(client.id, p.title)) continue
+    const createdAt = now - (10 + i * 14) * DAY
+    insertNewsletter.run(uuid(), client.id, p.title, p.body, p.excerpt, p.status, createdAt)
     mpAdded++
   }
   // Backdate the original 6 posts too, so Content doesn't look like it all landed in one burst.
