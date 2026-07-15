@@ -210,7 +210,7 @@ function AppInner() {
             <div className="module-legend">
               <div className="module-legend-item"><span className="module-dot module-dot-produce" /> Produce <span className="module-legend-hint">create</span></div>
               <div className="module-legend-item"><span className="module-dot module-dot-reach" /> Reach <span className="module-legend-hint">distribute</span></div>
-              <div className="module-legend-item"><span className="module-dot module-dot-respond" /> Respond <span className="module-legend-hint">soon</span></div>
+              <div className="module-legend-item"><span className="module-dot module-dot-respond" /> Respond <span className="module-legend-hint">engage</span></div>
               <div className="module-legend-item"><span className="module-dot module-dot-measure" /> Measure <span className="module-legend-hint">citations</span></div>
             </div>
             </>}

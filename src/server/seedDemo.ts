@@ -181,6 +181,151 @@ export function seedDemo(verbose = false): DemoSeedResult {
   }
   log(`✅ Draft posts: ${pAdded} added (${demoPosts.length - pAdded} already present)`)
 
+  // ─── 4. Produce source — a real RSS feed, so Sources isn't empty ────────────
+  const hasSource = db.prepare('SELECT 1 FROM sources WHERE client_id = ? AND url = ?')
+  if (!hasSource.get(client.id, 'https://bwave-blog.netlify.app/rss.xml')) {
+    db.prepare(`INSERT INTO sources (id, client_id, type, url, label, active) VALUES (?, ?, 'rss', ?, ?, 1)`)
+      .run(uuid(), client.id, 'https://bwave-blog.netlify.app/rss.xml', 'βWave blog')
+    log('✅ Source: βWave blog RSS')
+  }
+
+  // ─── 5. Syndicate — a matching source + destination cards for the main platforms ──
+  // Destinations are unconfigured (no credentials) — this shows the intended shape of
+  // the feature honestly rather than faking a live connection. Clicking "Test" on any
+  // of them will fail with a clear "needs credentials" message, same as a fresh install.
+  const hasSynSource = db.prepare('SELECT 1 FROM syndication_sources WHERE client_id = ? AND url = ?')
+  if (!hasSynSource.get(client.id, 'https://bwave-blog.netlify.app/rss.xml')) {
+    db.prepare(`INSERT INTO syndication_sources (id, client_id, label, source_type, url, active) VALUES (?, ?, ?, 'rss', ?, 1)`)
+      .run(uuid(), client.id, 'βWave blog', 'https://bwave-blog.netlify.app/rss.xml')
+    log('✅ Syndicate source: βWave blog RSS')
+  }
+
+  const demoDestinations = [
+    { label: 'X — connect your account', platform: 'x', handle: '@yourbrand' },
+    { label: 'LinkedIn — connect your account', platform: 'linkedin', handle: '' },
+    { label: 'Facebook Page — connect your account', platform: 'facebook', handle: '' },
+    { label: 'Instagram — connect your account', platform: 'instagram', handle: '@yourbrand' },
+    { label: 'Telegram — connect your bot', platform: 'telegram', handle: '' },
+  ]
+  const hasDest = db.prepare('SELECT 1 FROM syndication_destinations WHERE client_id = ? AND label = ?')
+  const insertDest = db.prepare(`INSERT INTO syndication_destinations (id, client_id, label, platform, handle, active) VALUES (?, ?, ?, ?, ?, 0)`)
+  let dAdded = 0
+  for (const d of demoDestinations) {
+    if (hasDest.get(client.id, d.label)) continue
+    insertDest.run(uuid(), client.id, d.label, d.platform, d.handle); dAdded++
+  }
+  log(`✅ Syndicate destinations: ${dAdded} added (unconfigured — need real credentials to activate)`)
+
+  // ─── 6. Schedule — a weekly cadence so the Schedule tab shows a live rhythm ─
+  const hasSchedule = db.prepare('SELECT 1 FROM schedules WHERE client_id = ? AND content_type = ?')
+  if (!hasSchedule.get(client.id, 'blog')) {
+    db.prepare(`INSERT INTO schedules (id, client_id, content_type, frequency, day_of_week, time_of_day, enabled)
+                VALUES (?, ?, 'blog', 'weekly', 2, '09:00', 1)`)
+      .run(uuid(), client.id)
+    log('✅ Schedule: weekly blog post, Tuesdays 09:00')
+  }
+
+  // ─── 7. Respond — a demo inbox so the approve/reject UI has something to show ──
+  // Clearly demo: labelled account name, no real access token, status 'pending'
+  // (accurate — nothing is actually connected) so it never claims to be live.
+  let demoAccount = db.prepare(`SELECT * FROM social_accounts WHERE client_id = ? AND account_name = ?`)
+    .get(client.id, 'βWave demo inbox (not connected)') as any
+  if (!demoAccount) {
+    const aid = uuid()
+    db.prepare(`INSERT INTO social_accounts (id, client_id, platform, account_name, username, status)
+                VALUES (?, ?, 'twitter', ?, '@yourbrand', 'pending')`)
+      .run(aid, client.id, 'βWave demo inbox (not connected)')
+    demoAccount = db.prepare('SELECT * FROM social_accounts WHERE id = ?').get(aid) as any
+    log(`✅ Demo Respond account created (${aid})`)
+  }
+
+  const demoComments = [
+    {
+      author_name: 'Priya K.', content: 'Does this actually replace Buffer + Jasper or is that marketing talk?',
+      sentiment: 'neutral',
+    },
+    {
+      author_name: 'Marcus T.', content: 'Self-hosted the whole thing in about 15 minutes. Genuinely didn\'t expect that.',
+      sentiment: 'positive',
+    },
+    {
+      author_name: 'SaaS_Skeptic', content: 'Cool concept but I bet the DFY pricing is where you actually make money 👀',
+      sentiment: 'neutral',
+    },
+  ]
+  const hasComment = db.prepare('SELECT 1 FROM social_comments WHERE account_id = ? AND author_name = ?')
+  const insertComment = db.prepare(`
+    INSERT INTO social_comments (id, account_id, platform, external_id, author_name, content, sentiment, status, published_at)
+    VALUES (?, ?, 'twitter', ?, ?, ?, ?, 'pending', unixepoch())
+  `)
+  let cmAdded = 0
+  for (const c of demoComments) {
+    if (hasComment.get(demoAccount.id, c.author_name)) continue
+    insertComment.run(uuid(), demoAccount.id, `demo-${uuid().slice(0, 8)}`, c.author_name, c.content, c.sentiment); cmAdded++
+  }
+  log(`✅ Demo inbox comments: ${cmAdded} added, awaiting approval in Respond`)
+
+  // ─── 8. Discovery — a synthetic vertical with example orgs/contacts ────────
+  // Entirely fictional company names, not scraped/real businesses — demonstrates
+  // the Discovery UI (including LinkedIn outreach drafting) without implying real leads.
+  let vertical = db.prepare(`SELECT * FROM verticals WHERE client_id = ? AND slug = ?`)
+    .get(client.id, 'marketing-managers-demo') as any
+  if (!vertical) {
+    const vid = uuid()
+    db.prepare(`INSERT INTO verticals (id, client_id, slug, name, description, multi_unit_min_locations)
+                VALUES (?, ?, 'marketing-managers-demo', 'Marketing Managers (demo)',
+                'Example vertical showing Discovery targeting marketing managers at SMBs — fictional companies for illustration.', 1)`)
+      .run(vid, client.id)
+    vertical = db.prepare('SELECT * FROM verticals WHERE id = ?').get(vid) as any
+    log(`✅ Demo vertical: Marketing Managers (${vid})`)
+  }
+
+  const demoOrgs = [
+    { name: 'Northfield Outdoor Supply (demo)', domain: 'example-northfield.com', sub_segment: 'Retail / e-commerce', hq_location: 'Leeds, UK' },
+    { name: 'Ridgeway Dental Group (demo)', domain: 'example-ridgeway.com', sub_segment: 'Healthcare', hq_location: 'Manchester, UK' },
+    { name: 'Copperline Studios (demo)', domain: 'example-copperline.com', sub_segment: 'Creative agency', hq_location: 'Bristol, UK' },
+  ]
+  const hasOrg = db.prepare('SELECT 1 FROM dl_organizations WHERE vertical_id = ? AND name = ?')
+  const insertOrg = db.prepare(`
+    INSERT INTO dl_organizations (id, client_id, vertical_id, name, domain, sub_segment, hq_location, location_count)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+  `)
+  const orgIds: Record<string, string> = {}
+  for (const o of demoOrgs) {
+    let row = db.prepare('SELECT id FROM dl_organizations WHERE vertical_id = ? AND name = ?').get(vertical.id, o.name) as any
+    if (!row) {
+      const oid = uuid()
+      insertOrg.run(oid, client.id, vertical.id, o.name, o.domain, o.sub_segment, o.hq_location)
+      row = { id: oid }
+    }
+    orgIds[o.name] = row.id
+  }
+  log(`✅ Demo organisations: ${demoOrgs.length} present`)
+
+  const demoContacts = [
+    { org: 'Northfield Outdoor Supply (demo)', full_name: 'Alex Whitfield', role: 'Marketing Manager',
+      linkedin_url: 'https://www.linkedin.com/in/example-alex-whitfield', outreach_status: 'not_contacted' },
+    { org: 'Ridgeway Dental Group (demo)', full_name: 'Sam Okafor', role: 'Head of Marketing',
+      linkedin_url: 'https://www.linkedin.com/in/example-sam-okafor',
+      outreach_status: 'messaged',
+      outreach_message: "Hi Sam — thanks for connecting. Built something that replaces the pile of marketing SaaS subscriptions most businesses bleed money on every month. Free forever, self-hosted, no catch: [link]. Worth a look if useful, ignore if not." },
+    { org: 'Copperline Studios (demo)', full_name: 'Jordan Reyes', role: 'Marketing Director',
+      linkedin_url: 'https://www.linkedin.com/in/example-jordan-reyes', outreach_status: 'not_contacted' },
+  ]
+  const hasContact = db.prepare('SELECT 1 FROM dl_contacts WHERE organization_id = ? AND full_name = ?')
+  const insertContact = db.prepare(`
+    INSERT INTO dl_contacts (id, organization_id, full_name, role, linkedin_url, source, source_confidence, outreach_status, outreach_message, outreach_sent_at)
+    VALUES (?, ?, ?, ?, ?, 'demo', 60, ?, ?, ?)
+  `)
+  let ctAdded = 0
+  for (const c of demoContacts) {
+    const orgId = orgIds[c.org]
+    if (!orgId || hasContact.get(orgId, c.full_name)) continue
+    const sentAt = c.outreach_status === 'messaged' ? Math.floor(Date.now() / 1000) - 3 * 86400 : null
+    insertContact.run(uuid(), orgId, c.full_name, c.role, c.linkedin_url, c.outreach_status, c.outreach_message || '', sentAt); ctAdded++
+  }
+  log(`✅ Demo contacts: ${ctAdded} added (one pre-marked "messaged" to show the outreach filter/sort)`)
+
   return { client: BUSINESS, queries: demoQueries.length, competitors: demoCompetitors.length, posts: demoPosts.length }
 }
 
