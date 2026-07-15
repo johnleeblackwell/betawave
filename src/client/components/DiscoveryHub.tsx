@@ -610,10 +610,17 @@ function BulkImportOrgs({ clientId, verticalId, onDone }: { clientId: string; ve
 }
 
 // ─── Contacts tab (vertical-wide) ────────────────────────────────────────────
+type ContactSortKey = 'name' | 'role' | 'org' | 'confidence' | 'outreach'
+type OutreachFilter = 'all' | 'not_contacted' | 'messaged'
+
 function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: string }) {
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [contactsByOrg, setContactsByOrg] = useState<Record<string, Contact[]>>({})
   const [showBulk, setShowBulk] = useState(false)
+  const [sortKey, setSortKey] = useState<ContactSortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [filter, setFilter] = useState('')
+  const [outreachFilter, setOutreachFilter] = useState<OutreachFilter>('all')
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/discovery/verticals/${verticalId}/organizations`)
@@ -629,11 +636,48 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
   useEffect(() => { load() }, [load])
 
   const totalContacts = Object.values(contactsByOrg).reduce((sum, arr) => sum + arr.length, 0)
+  const messagedCount = Object.values(contactsByOrg).flat().filter(c => c.outreach_status === 'messaged').length
+
+  const toggleSort = (key: ContactSortKey) => {
+    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const arrow = (key: ContactSortKey) => (sortKey !== key ? '' : sortDir === 'asc' ? ' ↑' : ' ↓')
+
+  let rows = orgs.flatMap(o => (contactsByOrg[o.id] || []).map(c => ({ c, o })))
+
+  if (outreachFilter !== 'all') {
+    rows = rows.filter(({ c }) => (c.outreach_status || 'not_contacted') === outreachFilter)
+  }
+  if (filter.trim()) {
+    const f = filter.trim().toLowerCase()
+    rows = rows.filter(({ c, o }) =>
+      c.full_name.toLowerCase().includes(f) ||
+      (c.role || '').toLowerCase().includes(f) ||
+      o.name.toLowerCase().includes(f))
+  }
+
+  const dir = sortDir === 'asc' ? 1 : -1
+  rows = [...rows].sort((a, b) => {
+    switch (sortKey) {
+      case 'name':       return a.c.full_name.localeCompare(b.c.full_name) * dir
+      case 'role':       return (a.c.role || '').localeCompare(b.c.role || '') * dir
+      case 'org':        return a.o.name.localeCompare(b.o.name) * dir
+      case 'confidence': return ((a.c.source_confidence || 0) - (b.c.source_confidence || 0)) * dir
+      case 'outreach': {
+        const av = a.c.outreach_status === 'messaged' ? (a.c.outreach_sent_at || 0) : -1
+        const bv = b.c.outreach_status === 'messaged' ? (b.c.outreach_sent_at || 0) : -1
+        return (av - bv) * dir
+      }
+    }
+  })
 
   return (
     <div className="page-content">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div className="text-muted">{totalContacts} contacts across {orgs.length} organisations</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div className="text-muted">
+          {totalContacts} contacts across {orgs.length} organisations · <strong>{messagedCount} messaged</strong>
+        </div>
         <button className="btn btn-primary btn-sm" onClick={() => setShowBulk(!showBulk)}>📥 Leadswift CSV import</button>
       </div>
 
@@ -646,21 +690,46 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
           <p>Import contacts from Leadswift via CSV. Match against existing organisations by domain.</p>
         </div>
       ) : (
-        <table className="table">
-          <thead><tr><th>Name</th><th>Role</th><th>Email</th><th>Org</th><th>Source</th><th>LinkedIn outreach</th></tr></thead>
-          <tbody>
-            {orgs.flatMap(o => (contactsByOrg[o.id] || []).map(c => (
-              <tr key={c.id}>
-                <td><strong>{c.full_name}</strong></td>
-                <td>{c.role}</td>
-                <td><span style={{ fontSize: '0.82rem' }}>{c.email}</span></td>
-                <td><span className="tag">{o.name}</span></td>
-                <td><span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.source} ({c.source_confidence}%)</span></td>
-                <td><OutreachCell clientId={clientId} contact={c} onUpdated={load} /></td>
+        <>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="form-input" style={{ maxWidth: 240 }} placeholder="Search name, role, org…"
+              value={filter} onChange={e => setFilter(e.target.value)} />
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['all', 'not_contacted', 'messaged'] as OutreachFilter[]).map(f => (
+                <button key={f}
+                  className={`btn btn-sm ${outreachFilter === f ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setOutreachFilter(f)}>
+                  {f === 'all' ? 'All' : f === 'messaged' ? '✓ Messaged' : 'Not contacted'}
+                </button>
+              ))}
+            </div>
+            <div className="text-muted" style={{ fontSize: '0.8rem' }}>{rows.length} shown</div>
+          </div>
+          <table className="table">
+            <thead>
+              <tr>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('name')}>Name{arrow('name')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('role')}>Role{arrow('role')}</th>
+                <th>Email</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('org')}>Org{arrow('org')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('confidence')}>Source{arrow('confidence')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('outreach')}>LinkedIn outreach{arrow('outreach')}</th>
               </tr>
-            )))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map(({ c, o }) => (
+                <tr key={c.id}>
+                  <td><strong>{c.full_name}</strong></td>
+                  <td>{c.role}</td>
+                  <td><span style={{ fontSize: '0.82rem' }}>{c.email}</span></td>
+                  <td><span className="tag">{o.name}</span></td>
+                  <td><span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.source} ({c.source_confidence}%)</span></td>
+                  <td><OutreachCell clientId={clientId} contact={c} onUpdated={load} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   )
@@ -670,6 +739,13 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
 // LinkedIn has no self-serve send API — this drafts a personalised message and
 // gets it one click from being sent, but a human always clicks Send in LinkedIn
 // itself. Never automates the actual send (that's a ToS/ban risk on a real account).
+function relativeDays(unixSeconds: number): string {
+  const days = Math.floor((Date.now() / 1000 - unixSeconds) / 86400)
+  if (days <= 0) return 'today'
+  if (days === 1) return '1 day ago'
+  return `${days} days ago`
+}
+
 function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; contact: Contact; onUpdated: () => void }) {
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
@@ -712,7 +788,11 @@ function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; cont
   }
 
   if (contact.outreach_status === 'messaged') {
-    return <span className="tag" style={{ background: 'var(--accent-soft, #e6f7f0)' }}>✓ messaged</span>
+    return (
+      <span className="tag" style={{ background: 'var(--accent-soft, #e6f7f0)' }}>
+        ✓ messaged{contact.outreach_sent_at ? ` · ${relativeDays(contact.outreach_sent_at)}` : ''}
+      </span>
+    )
   }
 
   return (
