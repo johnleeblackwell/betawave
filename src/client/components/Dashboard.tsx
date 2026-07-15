@@ -11,6 +11,7 @@ export default function Dashboard({ clients, onSelectClient, onAddClient }: Prop
   const theme = useTheme()
   const totalContent = clients.reduce((n, c) => n + (c.content_count || 0), 0)
   const totalSources = clients.reduce((n, c) => n + (c.source_count || 0), 0)
+  const totalPendingComments = clients.reduce((n, c) => n + (c.pending_comments_count || 0), 0)
   const citationClients = clients.filter(c => (c.citation_run_count || 0) > 0)
   const avgShare = citationClients.length > 0
     ? Math.round(citationClients.reduce((n, c) => n + (c.citation_last_share || 0), 0) / citationClients.length)
@@ -45,8 +46,10 @@ export default function Dashboard({ clients, onSelectClient, onAddClient }: Prop
           </div>
           <div className="stat-card stat-card-respond">
             <div className="stat-label">⚪ Respond</div>
-            <div className="stat-value" style={{ color: '#94a3b8' }}>—</div>
-            <div className="stat-sub">coming soon</div>
+            <div className="stat-value">
+              {totalPendingComments > 0 ? totalPendingComments : <span style={{ color: '#94a3b8' }}>—</span>}
+            </div>
+            <div className="stat-sub">{totalPendingComments > 0 ? 'awaiting your reply' : 'no comments yet'}</div>
           </div>
           <div className="stat-card stat-card-measure">
             <div className="stat-label">🟣 Measure</div>

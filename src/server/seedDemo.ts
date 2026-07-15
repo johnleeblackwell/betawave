@@ -326,6 +326,221 @@ export function seedDemo(verbose = false): DemoSeedResult {
   }
   log(`✅ Demo contacts: ${ctAdded} added (one pre-marked "messaged" to show the outreach filter/sort)`)
 
+  // ─── 9. Discovery volume — enough orgs/contacts/prospects for a real-feeling ──
+  // pipeline (a Zoho-style demo shows depth and history, not three sample rows).
+  const now = Math.floor(Date.now() / 1000)
+  const DAY = 86400
+
+  const moreOrgNames = [
+    'Aldergate Fitness Studios', 'Brightwell Vets Group', 'Cascade Plumbing & Heating',
+    'Driftwood Coffee Roasters', 'Elmsworth Legal Partners', 'Fernbridge Architects',
+    'Granite Peak Landscaping', 'Hollowmere Insurance Brokers', 'Ironwood Furniture Co',
+    'Juniper Lane Bakery', 'Kestrel Media Group', 'Lyndhurst Accountants',
+    'Millbrook Physiotherapy', 'Northgate Motors', 'Oakfield Veterinary Clinic',
+  ]
+  const segments = ['Retail / e-commerce', 'Healthcare', 'Professional services', 'Creative agency', 'Trades & home services']
+  const insertOrg2 = db.prepare(`
+    INSERT INTO dl_organizations (id, client_id, vertical_id, name, domain, sub_segment, hq_location, location_count, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+  `)
+  const cities = ['Leeds, UK', 'Manchester, UK', 'Bristol, UK', 'Birmingham, UK', 'Glasgow, UK', 'Cardiff, UK']
+  let orgVAdded = 0
+  const allOrgIds: string[] = Object.values(orgIds)
+  for (let i = 0; i < moreOrgNames.length; i++) {
+    const name = `${moreOrgNames[i]} (demo)`
+    const existing = db.prepare('SELECT id FROM dl_organizations WHERE vertical_id = ? AND name = ?').get(vertical.id, name) as any
+    if (existing) { allOrgIds.push(existing.id); continue }
+    const oid = uuid()
+    const domain = `example-${moreOrgNames[i].toLowerCase().replace(/[^a-z]+/g, '')}.com`
+    const status = i % 11 === 0 ? 'excluded' : 'active'
+    insertOrg2.run(oid, client.id, vertical.id, name, domain, segments[i % segments.length], cities[i % cities.length], status)
+    allOrgIds.push(oid); orgVAdded++
+  }
+  log(`✅ Discovery organisations: ${orgVAdded} more added (${allOrgIds.length} total in vertical)`)
+
+  // Extra contacts across the new orgs — realistic spread of outreach states.
+  const firstNames = ['Priya', 'Callum', 'Mei', 'Tomasz', 'Fatima', 'Declan', 'Aisling', 'Ravi', 'Nadia', 'Owen', 'Yusuf', 'Freya']
+  const lastNames = ['Bhatt', 'Murray', 'Lindqvist', 'Novak', 'Hassan', 'Byrne', 'Kowalski', 'Iqbal', 'Fenwick', 'Torres']
+  const roles = ['Marketing Manager', 'Head of Marketing', 'Marketing Director', 'Digital Marketing Lead', 'Brand Manager']
+  const insertOrgContact = db.prepare(`
+    INSERT INTO dl_contacts (id, organization_id, full_name, role, linkedin_url, source, source_confidence, outreach_status, outreach_message, outreach_sent_at)
+    VALUES (?, ?, ?, ?, ?, 'demo', ?, ?, ?, ?)
+  `)
+  let extraContacts = 0
+  for (let i = 0; i < allOrgIds.length; i++) {
+    // Not every org has a named contact yet — realistic for a live pipeline.
+    if (i % 4 === 3) continue
+    const orgId = allOrgIds[i]
+    const fn = firstNames[i % firstNames.length]
+    const ln = lastNames[(i * 3) % lastNames.length]
+    const fullName = `${fn} ${ln}`
+    if (db.prepare('SELECT 1 FROM dl_contacts WHERE organization_id = ? AND full_name = ?').get(orgId, fullName)) continue
+    const roll = i % 5
+    const outreachStatus = roll < 2 ? 'not_contacted' : 'messaged'
+    const sentAt = outreachStatus === 'messaged' ? now - (2 + (i % 12)) * DAY : null
+    const msg = outreachStatus === 'messaged'
+      ? `Hi ${fn} — thanks for connecting. Built something that replaces the pile of marketing SaaS subscriptions most businesses bleed money on every month. Free forever, self-hosted, no catch: [link]. Worth a look if useful, ignore if not.`
+      : ''
+    insertOrgContact.run(
+      uuid(), orgId, fullName, roles[i % roles.length],
+      `https://www.linkedin.com/in/example-${fn.toLowerCase()}-${ln.toLowerCase()}`,
+      55 + (i % 40), outreachStatus, msg, sentAt,
+    )
+    extraContacts++
+  }
+  log(`✅ Discovery contacts: ${extraContacts} more added, spread across "not contacted" and "messaged" (varied dates)`)
+
+  // Prospects — a real funnel: scored → approved → sent → hot → won/lost.
+  const prospectStatuses = ['scored', 'scored', 'approved', 'approved', 'sent', 'sent', 'hot', 'won', 'lost']
+  const hasProspect = db.prepare('SELECT 1 FROM dl_prospects WHERE organization_id = ?')
+  const insertProspect = db.prepare(`
+    INSERT INTO dl_prospects (id, client_id, organization_id, vertical_id, visibility_score, score_calculated_at, rank, status, approved_at, sent_at, hot_at, won_at, lost_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  let prospectsAdded = 0
+  for (let i = 0; i < allOrgIds.length; i++) {
+    const orgId = allOrgIds[i]
+    if (hasProspect.get(orgId)) continue
+    const status = prospectStatuses[i % prospectStatuses.length]
+    const score = Math.round((0.15 + (i % 10) * 0.07) * 100) / 100
+    const calcAt = now - (1 + (i % 20)) * DAY
+    const approvedAt = ['approved', 'sent', 'hot', 'won', 'lost'].includes(status) ? calcAt + 1 * DAY : null
+    const sentAt = ['sent', 'hot', 'won', 'lost'].includes(status) ? calcAt + 3 * DAY : null
+    const hotAt = status === 'hot' ? calcAt + 5 * DAY : null
+    const wonAt = status === 'won' ? calcAt + 9 * DAY : null
+    const lostAt = status === 'lost' ? calcAt + 7 * DAY : null
+    insertProspect.run(uuid(), client.id, orgId, vertical.id, score, calcAt, i + 1, status, approvedAt, sentAt, hotAt, wonAt, lostAt)
+    prospectsAdded++
+  }
+  log(`✅ Prospects: ${prospectsAdded} added across the full pipeline (scored → approved → sent → hot → won/lost)`)
+
+  // ─── 10. Citation history — real weekly runs so Measure shows an actual trend ──
+  const brandId = brand.id
+  const engines = ['anthropic', 'openai', 'perplexity', 'gemini']
+  const queryRows = db.prepare('SELECT id FROM tracked_queries WHERE brand_id = ?').all(brandId) as any[]
+  const existingRuns = (db.prepare('SELECT COUNT(*) c FROM citation_runs WHERE brand_id = ?').get(brandId) as any).c
+  if (existingRuns === 0 && queryRows.length > 0) {
+    const WEEKS = 10
+    const insertRun = db.prepare(`
+      INSERT INTO citation_runs (id, brand_id, run_at, status, total_calls, completed, failed, cost_gbp, engines_json)
+      VALUES (?, ?, ?, 'complete', ?, ?, 0, ?, ?)
+    `)
+    const insertResult = db.prepare(`
+      INSERT INTO citation_results (id, run_id, query_id, engine, cited_sources, cost_gbp, latency_ms, http_status, classified_at, brand_mentioned, brand_position, sentiment, competitor_mentions_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 200, ?, ?, ?, ?, ?, ?)
+    `)
+    const competitorPool = demoCompetitors.map(c => c.name)
+    for (let w = WEEKS - 1; w >= 0; w--) {
+      const runAt = now - w * 7 * DAY
+      const totalCalls = queryRows.length * engines.length
+      // Trend: mention rate climbs from ~15% ten weeks ago to ~68% this week —
+      // the story a real self-hosted-then-tracked brand would actually show.
+      const progress = (WEEKS - 1 - w) / (WEEKS - 1)
+      const baseRate = 0.15 + progress * 0.53
+      const runId = uuid()
+      insertRun.run(runId, brandId, runAt, totalCalls, totalCalls, (0.008 * totalCalls).toFixed(4), JSON.stringify(engines))
+      for (const q of queryRows) {
+        for (const engine of engines) {
+          const engineJitter = engine === 'perplexity' ? 0.12 : engine === 'anthropic' ? 0.05 : -0.04
+          const mentioned = Math.random() < Math.min(0.92, Math.max(0.03, baseRate + engineJitter)) ? 1 : 0
+          const mentionsCompetitor = !mentioned && Math.random() < 0.4
+          const competitors = mentionsCompetitor
+            ? JSON.stringify([competitorPool[Math.floor(Math.random() * competitorPool.length)]])
+            : '[]'
+          insertResult.run(
+            uuid(), runId, q.id, engine,
+            mentioned ? 'betawave.co.uk' : '',
+            0.008, 800 + Math.floor(Math.random() * 1200),
+            runAt + Math.floor(Math.random() * 3600),
+            mentioned, mentioned ? (Math.random() < 0.5 ? 'first' : 'mentioned') : null,
+            mentioned ? 'positive' : 'neutral',
+            competitors, runAt,
+          )
+        }
+      }
+    }
+    log(`✅ Citation history: ${WEEKS} weekly runs seeded with a realistic upward trend (15% → 68% mention rate)`)
+  } else {
+    log('ℹ️  Citation history already present — skipped')
+  }
+
+  // ─── 11. More content, spread over weeks with a realistic status mix ───────
+  const moreContentPosts = [
+    { title: 'What actually happens when you self-host your marketing stack', status: 'published',
+      excerpt: 'A week-by-week account of moving off five SaaS subscriptions and onto one self-hosted engine.',
+      body: 'The first week is the hard part — exporting content out of tools that make leaving deliberately annoying. After that, everything gets simpler, not harder.' },
+    { title: 'AI-citation tracking: our first month of data', status: 'published',
+      excerpt: 'What we found watching ChatGPT, Claude, Gemini and Perplexity for a month.',
+      body: 'Mention rate moved from roughly 1 in 7 queries to over half within ten weeks — not from buying ads, but from consistently publishing content the engines could actually cite.' },
+    { title: 'The real cost of a £3k/month marketing agency, broken down', status: 'published',
+      excerpt: 'Where that retainer actually goes, and what it would take to replace it.',
+      body: 'Strip out the account management overhead and most retainers are paying for maybe 15 hours a week of actual production work — work a well-configured engine can do continuously.' },
+    { title: 'Why we chose AGPL-3.0 for βWave', excerpt: 'Open source, but not a target for SaaS resellers who never contribute back.', status: 'draft',
+      body: 'AGPL closes the network-service loophole that lets a company run a modified fork as a paid service without releasing the changes. That matters more once you are giving the whole product away.' },
+    { title: 'A field guide to self-hosted LLM options for marketing', excerpt: 'GLM5, Llama, and when local inference actually makes sense.', status: 'draft',
+      body: 'Local models are cheaper and fully private, but not yet as capable for long-form brand-voice writing. Best used for classification and short-form tasks, Claude or GPT-4o for the long-form work.' },
+    { title: 'Scheduled: what we are shipping next quarter', excerpt: 'YouTube syndication, Discord, and a real LinkedIn Company Page flow.', status: 'scheduled',
+      body: 'LinkedIn personal-profile posting is live today. Company Page posting needs LinkedIn'+"'"+'s Community Management API review, which we'+"'"+'ve submitted — no fixed timeline, but it'+"'"+'s in progress.' },
+  ]
+  const insertPost2 = db.prepare(`INSERT INTO content (id, client_id, type, title, body, excerpt, status, image_query, created_at) VALUES (?, ?, 'blog', ?, ?, ?, ?, '', ?)`)
+  let mpAdded = 0
+  for (let i = 0; i < moreContentPosts.length; i++) {
+    const p = moreContentPosts[i]
+    if (db.prepare('SELECT 1 FROM content WHERE client_id = ? AND title = ?').get(client.id, p.title)) continue
+    const createdAt = now - (5 + i * 6) * DAY
+    insertPost2.run(uuid(), client.id, p.title, p.body, p.excerpt, p.status, createdAt)
+    mpAdded++
+  }
+  // Backdate the original 6 posts too, so Content doesn't look like it all landed in one burst.
+  const origTitles = demoPosts.map(p => p.title)
+  origTitles.forEach((t, i) => {
+    db.prepare(`UPDATE content SET created_at = ? WHERE client_id = ? AND title = ? AND created_at > ?`)
+      .run(now - (30 + i * 4) * DAY, client.id, t, now - 1 * DAY)
+  })
+  log(`✅ Content: ${mpAdded} more posts added, spread over ~9 weeks with a published/scheduled/draft mix`)
+
+  // ─── 12. Respond inbox — real volume with some already replied ─────────────
+  const moreComments = [
+    { author_name: 'Devon R.', content: 'How does this handle GDPR if I'+"'"+'m self hosting in the EU?', sentiment: 'neutral' },
+    { author_name: 'growth_hacker99', content: 'Tried it this morning, the LinkedIn draft generator is actually decent', sentiment: 'positive' },
+    { author_name: 'Aoife M.', content: 'Is there a migration path from HubSpot or do I start from scratch?', sentiment: 'neutral' },
+    { author_name: 'Ben_Founder', content: 'Been burned by "free forever" before. What'+"'"+'s the actual catch here?', sentiment: 'negative' },
+    { author_name: 'Wren Digital', content: 'Client asked us to look at this instead of renewing their Sprout contract. Promising so far.', sentiment: 'positive' },
+    { author_name: 'Tariq H.', content: 'Docker install worked first try, which almost never happens for me', sentiment: 'positive' },
+    { author_name: 'skeptical_marketer', content: 'Citation tracking against 4 engines weekly — what does that cost in API spend?', sentiment: 'neutral' },
+    { author_name: 'Louisa P.', content: 'Respond module UI is clean. Approve/reject flow makes sense immediately.', sentiment: 'positive' },
+    { author_name: 'DataPrivacyDan', content: 'Genuinely refreshing to see "self-hosted" mean self-hosted and not "cloud with extra steps"', sentiment: 'positive' },
+  ]
+  const insertComment2 = db.prepare(`
+    INSERT INTO social_comments (id, account_id, platform, external_id, author_name, content, sentiment, status, published_at, fetched_at, created_at)
+    VALUES (?, ?, 'twitter', ?, ?, ?, ?, ?, ?, ?, ?)
+  `)
+  const insertReply = db.prepare(`
+    INSERT INTO social_replies (id, comment_id, draft_content, approved_content, status, drafted_by, approved_at, sent_at)
+    VALUES (?, ?, ?, ?, 'sent', 'ai', ?, ?)
+  `)
+  const sampleReplies: Record<string, string> = {
+    'Devon R.': 'Good question — since it\'s self-hosted, your data residency is wherever you deploy it. Run it on an EU server and everything stays in the EU by default.',
+    'Ben_Founder': 'Fair to be skeptical. No catch on the software — it\'s AGPL, free forever, on your own server. We make money on Done-For-You for people who\'d rather not run it themselves.',
+    'skeptical_marketer': 'Depends on volume, but weekly across 6 queries × 4 engines runs a few pence to a few pounds a month on typical API pricing — you set a budget cap either way.',
+  }
+  let cm2Added = 0
+  for (let i = 0; i < moreComments.length; i++) {
+    const c = moreComments[i]
+    if (db.prepare('SELECT 1 FROM social_comments WHERE account_id = ? AND author_name = ?').get(demoAccount.id, c.author_name)) continue
+    const publishedAt = now - (1 + i) * DAY - Math.floor(Math.random() * 12 * 3600)
+    const hasReply = !!sampleReplies[c.author_name]
+    const status = hasReply ? 'replied' : 'pending'
+    const commentId = uuid()
+    insertComment2.run(commentId, demoAccount.id, `demo-${uuid().slice(0, 8)}`, c.author_name, c.content, c.sentiment, status, publishedAt, publishedAt, publishedAt)
+    if (hasReply) {
+      const reply = sampleReplies[c.author_name]
+      insertReply.run(uuid(), commentId, reply, reply, publishedAt + 3600, publishedAt + 3600)
+    }
+    cm2Added++
+  }
+  log(`✅ Respond: ${cm2Added} more comments added (some already replied, showing full history)`)
+
   return { client: BUSINESS, queries: demoQueries.length, competitors: demoCompetitors.length, posts: demoPosts.length }
 }
 

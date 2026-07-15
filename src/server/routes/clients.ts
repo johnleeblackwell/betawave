@@ -73,6 +73,9 @@ router.get('/', (_req, res) => {
     SELECT c.*,
       (SELECT COUNT(*) FROM content WHERE client_id = c.id) as content_count,
       (SELECT COUNT(*) FROM sources WHERE client_id = c.id AND active = 1) as source_count,
+      (SELECT COUNT(*) FROM social_comments sc
+        JOIN social_accounts sa ON sa.id = sc.account_id
+        WHERE sa.client_id = c.id AND sc.status = 'pending') as pending_comments_count,
       (SELECT COUNT(*) FROM citation_runs cr
         JOIN tracked_brands tb ON tb.id = cr.brand_id
         WHERE tb.client_id = c.id AND cr.status IN ('complete','partial')) as citation_run_count,

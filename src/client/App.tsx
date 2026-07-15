@@ -69,6 +69,7 @@ export interface Client {
   created_at: number
   content_count?: number
   source_count?: number
+  pending_comments_count?: number
   citation_run_count?: number
   citation_last_share?: number | null
 }
