@@ -25,6 +25,7 @@ import myDashboardRouter from './routes/my-dashboard.js'
 import commissionsRouter from './routes/commissions.js'
 import shopRouter, { shopPublicRouter, storefrontRouter } from './routes/shop.js'
 import discoveryRouter from './routes/discovery.js'
+import enrichRouter from './routes/enrich.js'
 import syndicationRouter from './routes/syndication.js'
 import agentsRouter from './routes/agents.js'
 import sitesRouter from './routes/sites.js'
@@ -105,6 +106,8 @@ app.use('/api/shop', shopPublicRouter)
 app.use('/shop', storefrontRouter)
 // Discovery Layer — client-scoped: verticals, organisations, contacts, prospects, scoring, LLM provider
 app.use('/api/clients/:clientId/discovery', discoveryRouter)
+// Contact Magnetism — global per-person enrichment from the browser extension
+app.use('/api/enrich', enrichRouter)
 // Syndication — RSS-source → X-destination auto-poster (no approval queue)
 app.use('/api/clients/:clientId/syndication', syndicationRouter)
 app.use('/api/clients/:clientId/agent', agentsRouter)

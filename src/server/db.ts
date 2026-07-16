@@ -945,6 +945,15 @@ ensureCol('dl_contacts', 'outreach_status',  `TEXT NOT NULL DEFAULT 'not_contact
 ensureCol('dl_contacts', 'outreach_message', `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_contacts', 'outreach_sent_at', `INTEGER`)
 
+// Contact Magnetism — per-person enrichment captured (passively, one profile
+// at a time) from a LinkedIn page the user is actively viewing: their recent
+// posts, own bio, genuine mutual connections, published links. Stored as JSON
+// so the message-drafting prompt can ground an opener in something TRUE about
+// THIS person, never faked familiarity. context_captured_at drives a freshness
+// signal (a post from yesterday is gold; one from months ago isn't "noticing").
+ensureCol('dl_contacts', 'contact_context',     `TEXT NOT NULL DEFAULT ''`)
+ensureCol('dl_contacts', 'context_captured_at', `INTEGER`)
+
 // Deferred indexes — must run AFTER the ensureCol back-fill so the columns exist
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_verticals_client    ON verticals(client_id);

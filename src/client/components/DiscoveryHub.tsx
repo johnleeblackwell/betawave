@@ -51,6 +51,8 @@ interface Contact {
   outreach_status?: string
   outreach_message?: string
   outreach_sent_at?: number | null
+  contact_context?: string
+  context_captured_at?: number | null
 }
 
 interface Prospect {
@@ -746,6 +748,41 @@ function relativeDays(unixSeconds: number): string {
   return `${days} days ago`
 }
 
+// Contact Magnetism — shows what real, captured context is grounding the draft,
+// and how fresh it is. No context = an honest prompt to go capture some.
+function ContextMagnetBanner({ contact }: { contact: Contact }) {
+  let ctx: any = null
+  try { ctx = contact.contact_context ? JSON.parse(contact.contact_context) : null } catch { /* malformed */ }
+  const has = ctx && ((ctx.recent_posts?.length) || ctx.about || (ctx.mutual_connections?.length) || (ctx.shared?.length))
+
+  if (!has) {
+    return (
+      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94a3b8)', margin: '4px 0 10px', padding: '8px 10px', border: '1px dashed var(--border, #334155)', borderRadius: 8 }}>
+        🧲 No captured context yet — view their LinkedIn profile with the βWave extension to ground this message in something real about them.
+      </div>
+    )
+  }
+
+  const ageDays = contact.context_captured_at ? Math.floor((Date.now() / 1000 - contact.context_captured_at) / 86400) : null
+  const stale = ageDays !== null && ageDays > 14
+  const bits: string[] = []
+  if (ctx.recent_posts?.length) bits.push(`${ctx.recent_posts.length} recent post${ctx.recent_posts.length === 1 ? '' : 's'}`)
+  if (ctx.about) bits.push('bio')
+  if (ctx.mutual_connections?.length) bits.push(`${ctx.mutual_connections.length} mutual`)
+  if (ctx.shared?.length) bits.push('shared context')
+
+  return (
+    <div style={{ fontSize: '0.78rem', margin: '4px 0 10px', padding: '8px 10px', background: 'color-mix(in oklab, var(--accent, #22D3EE) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--accent, #22D3EE) 35%, transparent)', borderRadius: 8 }}>
+      <strong>🧲 Grounded in real context</strong> — {bits.join(' · ')}
+      {contact.context_captured_at && (
+        <span style={{ color: stale ? 'var(--text-warning, #f59e0b)' : 'var(--text-muted, #94a3b8)' }}>
+          {' '}· captured {relativeDays(contact.context_captured_at)}{stale ? ' (getting stale — re-capture for a fresher opener)' : ''}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; contact: Contact; onUpdated: () => void }) {
   const { showToast } = useToast()
   const [open, setOpen] = useState(false)
@@ -808,6 +845,7 @@ function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; cont
             <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: -8 }}>
               Draft it, copy it, open their profile, paste and send yourself — βWave never sends LinkedIn messages automatically.
             </p>
+            <ContextMagnetBanner contact={contact} />
             <textarea className="form-input" rows={6} value={draft} onChange={e => setDraft(e.target.value)}
               placeholder={loading ? 'Generating…' : ''} disabled={loading} />
             <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>

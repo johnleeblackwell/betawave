@@ -444,7 +444,33 @@ router.post('/contacts/:id/generate-message', async (req, res) => {
   `).get(id, clientId) as any
   if (!row) return res.status(404).json({ error: 'Contact not found' })
 
-  const system = `You write short, blunt, honest first-message LinkedIn DMs for a new 1st-degree connection.
+  // Contact Magnetism — if we captured real context about THIS person, ground the
+  // opener in one true, specific thing. Never fabricate: only use what's provided.
+  let context: any = null
+  try { context = row.contact_context ? JSON.parse(row.contact_context) : null } catch { /* malformed */ }
+  const hasContext = context && (
+    (context.recent_posts && context.recent_posts.length) ||
+    context.about || (context.mutual_connections && context.mutual_connections.length) ||
+    (context.shared && context.shared.length)
+  )
+
+  const system = hasContext
+    ? `You write short, blunt, honest first-message LinkedIn DMs for a new 1st-degree connection.
+Voice: confident, plain-spoken, anti-hype, builder-to-builder, owns its opinions. Never fake-soft framing
+like "quick one" or "just wondering", never flattery, never a manufactured qualifying question.
+
+You have been given REAL, captured context about this specific person. Open with ONE genuine, specific
+observation drawn ONLY from that context — a thing they actually posted, a genuine mutual connection, their
+actual words about their work. This is the point: it must read as one human genuinely noticing another, not
+as a template. Rules on the context: use at most ONE item; never invent or embellish beyond what is given;
+if the context is thin or generic, it is better to skip it than to fake familiarity. Do NOT quote a post back
+verbatim in a creepy way — reference it naturally, the way you'd mention it if you'd actually read it.
+
+After the genuine opener: one plain line naming what you built and who it's for (replaces the pile of marketing
+SaaS subscriptions businesses bleed money on every month — free forever, self-hosted, no catch), then a
+low-pressure close ("worth a look if useful, ignore if not" — vary the wording). Under 500 characters.
+No emojis. No hashtags. Output ONLY the message text, nothing else.`
+    : `You write short, blunt, honest first-message LinkedIn DMs for a new 1st-degree connection.
 Voice: confident, plain-spoken, anti-hype, builder-to-builder, owns its opinions. Never use fake-soft framing
 like "quick one" or "just wondering" or a manufactured qualifying question — say what it is plainly.
 Structure: thank them for connecting, one line naming what you built and who it's for (replaces the pile of
@@ -452,10 +478,23 @@ marketing SaaS subscriptions businesses bleed money on every month — free fore
 then a low-pressure close ("worth a look if useful, ignore if not" or similar — vary the wording, never copy
 a template verbatim). Under 400 characters. No emojis. No hashtags. Output ONLY the message text, nothing else.`
 
+  let contextBlock = ''
+  if (hasContext) {
+    const lines: string[] = []
+    if (context.recent_posts?.length) {
+      lines.push('Recent posts they made:')
+      for (const p of context.recent_posts.slice(0, 3)) lines.push(`  - ${p.text}${p.when ? ` (${p.when})` : ''}`)
+    }
+    if (context.about) lines.push(`Their own bio: ${context.about}`)
+    if (context.mutual_connections?.length) lines.push(`Genuine mutual connections: ${context.mutual_connections.slice(0, 5).join(', ')}`)
+    if (context.shared?.length) lines.push(`Shared context: ${context.shared.join(', ')}`)
+    contextBlock = `\n\nREAL CONTEXT captured from their profile (use at most ONE item, never fabricate):\n${lines.join('\n')}`
+  }
+
   const prompt = `Write the message for:
 Name: ${row.full_name}
 Role: ${row.role || 'unknown role'}
-Company: ${row.org_name}${row.org_segment ? ` (${row.org_segment})` : ''}
+Company: ${row.org_name}${row.org_segment ? ` (${row.org_segment})` : ''}${contextBlock}
 Include a link placeholder exactly as: [link]`
 
   try {
