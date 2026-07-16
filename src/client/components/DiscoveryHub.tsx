@@ -753,7 +753,7 @@ function relativeDays(unixSeconds: number): string {
 function ContextMagnetBanner({ contact }: { contact: Contact }) {
   let ctx: any = null
   try { ctx = contact.contact_context ? JSON.parse(contact.contact_context) : null } catch { /* malformed */ }
-  const has = ctx && ((ctx.recent_posts?.length) || ctx.about || (ctx.mutual_connections?.length) || (ctx.shared?.length))
+  const has = ctx && ((ctx.recent_posts?.length) || ctx.about || (ctx.mutual_connections?.length) || (ctx.shared?.length) || (ctx.featured?.length) || ctx.current_role || (ctx.certifications?.length))
 
   if (!has) {
     return (
@@ -770,6 +770,9 @@ function ContextMagnetBanner({ contact }: { contact: Contact }) {
   if (ctx.about) bits.push('bio')
   if (ctx.mutual_connections?.length) bits.push(`${ctx.mutual_connections.length} mutual`)
   if (ctx.shared?.length) bits.push('shared context')
+  if (ctx.current_role) bits.push('current role')
+  if (ctx.featured?.length) bits.push('featured content')
+  if (ctx.certifications?.length) bits.push(`${ctx.certifications.length} certification${ctx.certifications.length === 1 ? '' : 's'}`)
 
   return (
     <div style={{ fontSize: '0.78rem', margin: '4px 0 10px', padding: '8px 10px', background: 'color-mix(in oklab, var(--accent, #22D3EE) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--accent, #22D3EE) 35%, transparent)', borderRadius: 8 }}>

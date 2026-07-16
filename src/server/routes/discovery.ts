@@ -451,7 +451,9 @@ router.post('/contacts/:id/generate-message', async (req, res) => {
   const hasContext = context && (
     (context.recent_posts && context.recent_posts.length) ||
     context.about || (context.mutual_connections && context.mutual_connections.length) ||
-    (context.shared && context.shared.length)
+    (context.shared && context.shared.length) ||
+    (context.featured && context.featured.length) ||
+    context.current_role || (context.certifications && context.certifications.length)
   )
 
   const system = hasContext
@@ -488,6 +490,9 @@ a template verbatim). Under 400 characters. No emojis. No hashtags. Output ONLY 
     if (context.about) lines.push(`Their own bio: ${context.about}`)
     if (context.mutual_connections?.length) lines.push(`Genuine mutual connections: ${context.mutual_connections.slice(0, 5).join(', ')}`)
     if (context.shared?.length) lines.push(`Shared context: ${context.shared.join(', ')}`)
+    if (context.current_role) lines.push(`Current role line shown on their profile (note the tenure — only mention "new role" if it genuinely reads as recent): ${context.current_role}`)
+    if (context.featured?.length) lines.push(`Content they've deliberately pinned to their profile: ${context.featured.join(' | ')}`)
+    if (context.certifications?.length) lines.push(`Certifications/licenses listed: ${context.certifications.join(', ')}`)
     contextBlock = `\n\nREAL CONTEXT captured from their profile (use at most ONE item, never fabricate):\n${lines.join('\n')}`
   }
 
