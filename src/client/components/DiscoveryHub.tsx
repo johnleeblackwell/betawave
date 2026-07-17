@@ -766,7 +766,10 @@ function ContextMagnetBanner({ contact }: { contact: Contact }) {
   if (!has) {
     return (
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94a3b8)', margin: '4px 0 10px', padding: '8px 10px', border: '1px dashed var(--border, #334155)', borderRadius: 8 }}>
-        🧲 No captured context yet — view their LinkedIn profile with the βWave extension to ground this message in something real about them.
+        🧲 <strong>Contact Magnetism</strong> grounds this message in something real the person actually said or did,
+        instead of a template. It needs the βWave capture extension, which isn't a download —{' '}
+        <a href="https://betawave.co.uk" target="_blank" rel="noopener noreferrer">ask for it</a> and you'll be talked through it.
+        Until then, this draft is written from their name, role and company only.
       </div>
     )
   }

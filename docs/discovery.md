@@ -48,3 +48,43 @@ Transitions auto-stamp timestamps (`sent_at`, `hot_at`, `won_at`) so you can mea
 ## Why this works as an outreach hook
 
 Your opening message writes itself: *"I asked ChatGPT who the best [vertical] in [city] is — you weren't mentioned. Your competitors were. Here's the screenshot."* Discovery generates that evidence at scale.
+
+## LinkedIn outreach drafting
+
+Any contact with a `linkedin_url` gets an **✉️ Message** button: it drafts a
+personalised opener, you copy it, open their profile, and send it yourself.
+
+βWave **never sends LinkedIn messages automatically**, and this isn't a
+limitation we plan to remove. LinkedIn has no self-serve messaging API, so
+"automated sending" would mean scripting the UI — which risks the one account
+your outreach depends on. More to the point, a human clicking Send is the
+product working as intended, not a step to optimise away.
+
+For broad role-based campaigns, nothing gets filtered out of your target list.
+Every captured lead is imported and drafted for; a `priority_score` (title
+match, mutual connections, recently hired, recent activity, shared groups) just
+**orders** the queue, so the limited number of sends you can realistically make
+in a week go to the best-fit people first.
+
+## Contact Magnetism
+
+βWave is named for beta brain waves — the state of engaged, alert attention.
+Contact Magnetism is that idea as a feature: a message should open with one
+**true, specific** thing about the person, because you actually noticed them.
+
+When real context has been captured for a contact, the drafting prompt grounds
+the opener in exactly one genuine detail — something they actually posted, a
+real mutual connection, their own words about their work — and is instructed to
+**skip the personal opener entirely rather than fake familiarity** if the
+context is thin. Nothing is ever invented.
+
+Capturing that context needs the βWave capture extension, which reads what's
+already on a LinkedIn page you're viewing (no automated clicking, navigation,
+or crawling; no email lookup; no sending).
+
+**The extension isn't a download.** Ask for it at
+[betawave.co.uk](https://betawave.co.uk) and you'll be talked through it —
+pointing a tool at LinkedIn deserves a real conversation first, not a zip file.
+
+Without it, everything else in Discovery still works; drafts are simply written
+from a contact's name, role, and company alone.
