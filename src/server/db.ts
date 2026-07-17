@@ -954,6 +954,15 @@ ensureCol('dl_contacts', 'outreach_sent_at', `INTEGER`)
 ensureCol('dl_contacts', 'contact_context',     `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_contacts', 'context_captured_at', `INTEGER`)
 
+// Outreach priority scoring — for broad role-based campaigns (e.g. "every
+// Marketing Manager in Arizona") we capture and draft for EVERYONE rather
+// than pre-filtering the target list; this score just orders the send queue
+// so the limited number of manual LinkedIn sends per week go to the
+// best-fit people first. Raw signals kept alongside the score so the
+// formula can be re-tuned without re-capturing.
+ensureCol('dl_contacts', 'priority_score',    `INTEGER NOT NULL DEFAULT 50`)
+ensureCol('dl_contacts', 'priority_signals',  `TEXT NOT NULL DEFAULT ''`)
+
 // Deferred indexes — must run AFTER the ensureCol back-fill so the columns exist
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_verticals_client    ON verticals(client_id);

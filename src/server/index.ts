@@ -26,6 +26,7 @@ import commissionsRouter from './routes/commissions.js'
 import shopRouter, { shopPublicRouter, storefrontRouter } from './routes/shop.js'
 import discoveryRouter from './routes/discovery.js'
 import enrichRouter from './routes/enrich.js'
+import leadsRouter from './routes/leads.js'
 import syndicationRouter from './routes/syndication.js'
 import agentsRouter from './routes/agents.js'
 import sitesRouter from './routes/sites.js'
@@ -108,6 +109,8 @@ app.use('/shop', storefrontRouter)
 app.use('/api/clients/:clientId/discovery', discoveryRouter)
 // Contact Magnetism — global per-person enrichment from the browser extension
 app.use('/api/enrich', enrichRouter)
+// Broad role-based lead capture with priority scoring (no pre-filtering)
+app.use('/api/leads', leadsRouter)
 // Syndication — RSS-source → X-destination auto-poster (no approval queue)
 app.use('/api/clients/:clientId/syndication', syndicationRouter)
 app.use('/api/clients/:clientId/agent', agentsRouter)

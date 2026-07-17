@@ -53,6 +53,7 @@ interface Contact {
   outreach_sent_at?: number | null
   contact_context?: string
   context_captured_at?: number | null
+  priority_score?: number
 }
 
 interface Prospect {
@@ -612,7 +613,7 @@ function BulkImportOrgs({ clientId, verticalId, onDone }: { clientId: string; ve
 }
 
 // ─── Contacts tab (vertical-wide) ────────────────────────────────────────────
-type ContactSortKey = 'name' | 'role' | 'org' | 'confidence' | 'outreach'
+type ContactSortKey = 'name' | 'role' | 'org' | 'confidence' | 'outreach' | 'priority'
 type OutreachFilter = 'all' | 'not_contacted' | 'messaged'
 
 function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: string }) {
@@ -666,6 +667,7 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
       case 'role':       return (a.c.role || '').localeCompare(b.c.role || '') * dir
       case 'org':        return a.o.name.localeCompare(b.o.name) * dir
       case 'confidence': return ((a.c.source_confidence || 0) - (b.c.source_confidence || 0)) * dir
+      case 'priority':   return ((a.c.priority_score ?? 50) - (b.c.priority_score ?? 50)) * dir
       case 'outreach': {
         const av = a.c.outreach_status === 'messaged' ? (a.c.outreach_sent_at || 0) : -1
         const bv = b.c.outreach_status === 'messaged' ? (b.c.outreach_sent_at || 0) : -1
@@ -715,6 +717,7 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
                 <th>Email</th>
                 <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('org')}>Org{arrow('org')}</th>
                 <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('confidence')}>Source{arrow('confidence')}</th>
+                <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('priority')}>Priority{arrow('priority')}</th>
                 <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('outreach')}>LinkedIn outreach{arrow('outreach')}</th>
               </tr>
             </thead>
@@ -726,6 +729,11 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
                   <td><span style={{ fontSize: '0.82rem' }}>{c.email}</span></td>
                   <td><span className="tag">{o.name}</span></td>
                   <td><span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.source} ({c.source_confidence}%)</span></td>
+                  <td>
+                    <span className="tag" style={{
+                      background: (c.priority_score ?? 50) >= 70 ? 'color-mix(in oklab, var(--accent, #22D3EE) 20%, transparent)' : undefined,
+                    }}>{c.priority_score ?? 50}</span>
+                  </td>
                   <td><OutreachCell clientId={clientId} contact={c} onUpdated={load} /></td>
                 </tr>
               ))}
