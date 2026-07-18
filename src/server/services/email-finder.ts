@@ -28,6 +28,13 @@ export interface EmailResult {
   source?: 'apollo' | 'hunter'
   status?: EmailStatus
   error?: string
+  /**
+   * True when the lookup couldn't even be attempted (no key, key rejected, out
+   * of credits). Callers MUST NOT record this as 'not_found' — that would mark
+   * the contact as searched and permanently exclude them from bulk lookup once
+   * a working key is added. A config problem is not an answer about the person.
+   */
+  configError?: boolean
 }
 
 export interface FindEmailInput {
@@ -69,8 +76,8 @@ async function findViaApollo(input: FindEmailInput, apiKey: string): Promise<Ema
     body: JSON.stringify(body),
   })
 
-  if (res.status === 401 || res.status === 403) return { ok: false, error: 'Apollo key rejected (401/403)' }
-  if (res.status === 429) return { ok: false, error: 'Apollo rate limit / out of credits' }
+  if (res.status === 401 || res.status === 403) return { ok: false, error: 'Apollo key rejected (401/403)', configError: true }
+  if (res.status === 429) return { ok: false, error: 'Apollo rate limit / out of credits', configError: true }
   if (!res.ok) return { ok: false, error: `Apollo error ${res.status}` }
 
   const data = await res.json() as any
@@ -110,8 +117,8 @@ async function findViaHunter(input: FindEmailInput, apiKey: string): Promise<Ema
   url.searchParams.set('api_key', apiKey)
 
   const res = await fetch(url)
-  if (res.status === 401) return { ok: false, error: 'Hunter key rejected (401)' }
-  if (res.status === 429) return { ok: false, error: 'Hunter rate limit / quota exhausted' }
+  if (res.status === 401) return { ok: false, error: 'Hunter key rejected (401)', configError: true }
+  if (res.status === 429) return { ok: false, error: 'Hunter rate limit / quota exhausted', configError: true }
   if (!res.ok) return { ok: false, error: `Hunter error ${res.status}` }
 
   const data = await res.json() as any
@@ -137,15 +144,17 @@ export async function findEmail(input: FindEmailInput): Promise<EmailResult> {
   const apollo = process.env.APOLLO_API_KEY?.trim()
   const hunter = process.env.HUNTER_API_KEY?.trim()
   if (!apollo && !hunter) {
-    return { ok: false, error: 'No email-finder key set — add Apollo or Hunter in Settings 🔑' }
+    return { ok: false, error: 'No email-finder key set — add Apollo or Hunter in Settings 🔑', configError: true }
   }
 
   const errors: string[] = []
+  let configError = false
 
   if (apollo && (input.linkedin_url || input.full_name)) {
     try {
       const r = await findViaApollo(input, apollo)
       if (r.ok) return r
+      if (r.configError) configError = true
       errors.push(r.error || 'Apollo: no match')
     } catch (e: any) {
       errors.push(`Apollo: ${e.message}`)
@@ -156,13 +165,14 @@ export async function findEmail(input: FindEmailInput): Promise<EmailResult> {
     try {
       const r = await findViaHunter(input, hunter)
       if (r.ok) return r
+      if (r.configError) configError = true
       errors.push(r.error || 'Hunter: no match')
     } catch (e: any) {
       errors.push(`Hunter: ${e.message}`)
     }
   }
 
-  return { ok: false, error: errors.join(' · ') || 'no provider could match this contact' }
+  return { ok: false, error: errors.join(' · ') || 'no provider could match this contact', configError }
 }
 
 /**

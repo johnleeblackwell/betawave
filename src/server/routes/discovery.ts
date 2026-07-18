@@ -453,10 +453,18 @@ router.post('/contacts/:id/find-email', async (req, res) => {
     })
 
     if (!r.ok) {
-      // A miss is a real answer — record it so we don't burn credits re-asking.
+      // Only record a miss when a provider actually searched and came up empty.
+      // A config error (no key, key rejected, out of credits) says nothing about
+      // this person — recording it as 'not_found' would permanently exclude them
+      // from bulk lookup once a working key is added.
+      if (r.configError) {
+        return res.status(400).json({ error: r.error || 'Email lookup not configured', status: 'not_searched' })
+      }
       db.prepare(`UPDATE dl_contacts SET email_status = 'not_found', email_found_at = unixepoch() WHERE id = ?`).run(id)
       return res.status(404).json({ error: r.error || 'No email found', status: 'not_found' })
     }
+
+
 
     db.prepare(`
       UPDATE dl_contacts
@@ -526,6 +534,10 @@ router.post('/verticals/:vid/find-emails', async (req, res) => {
           WHERE id = ?
         `).run(r.email, r.status, r.confidence ?? null, r.source, row.id)
         found++
+      } else if (r.configError) {
+        // Key missing/rejected/out of credits — abort the whole run rather than
+        // marking every remaining contact as searched-and-missed.
+        return res.json({ attempted: rows.length, found, missed, aborted: true, errors: [r.error || 'lookup not configured'] })
       } else {
         db.prepare(`UPDATE dl_contacts SET email_status = 'not_found', email_found_at = unixepoch() WHERE id = ?`).run(row.id)
         missed++
