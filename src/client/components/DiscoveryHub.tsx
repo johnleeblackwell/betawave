@@ -54,6 +54,11 @@ interface Contact {
   contact_context?: string
   context_captured_at?: number | null
   priority_score?: number
+  email_status?: string
+  email_confidence?: number | null
+  email_source?: string
+  suppressed?: number
+  suppressed_reason?: string
 }
 
 interface Prospect {
@@ -682,7 +687,10 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
         <div className="text-muted">
           {totalContacts} contacts across {orgs.length} organisations · <strong>{messagedCount} messaged</strong>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => setShowBulk(!showBulk)}>📥 Leadswift CSV import</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <BulkFindEmails clientId={clientId} verticalId={verticalId} onDone={load} />
+          <button className="btn btn-primary btn-sm" onClick={() => setShowBulk(!showBulk)}>📥 Leadswift CSV import</button>
+        </div>
       </div>
 
       {showBulk && <BulkImportContacts clientId={clientId} onDone={() => { load(); setShowBulk(false) }} />}
@@ -726,7 +734,7 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
                 <tr key={c.id}>
                   <td><strong>{c.full_name}</strong></td>
                   <td>{c.role}</td>
-                  <td><span style={{ fontSize: '0.82rem' }}>{c.email}</span></td>
+                  <td><EmailCell clientId={clientId} contact={c} onUpdated={load} /></td>
                   <td><span className="tag">{o.name}</span></td>
                   <td><span className="text-muted" style={{ fontSize: '0.78rem' }}>{c.source} ({c.source_confidence}%)</span></td>
                   <td>
@@ -742,6 +750,113 @@ function ContactsTab({ clientId, verticalId }: { clientId: string; verticalId: s
         </>
       )}
     </div>
+  )
+}
+
+// Bulk lookup — capped and highest-priority-first, because these are paid,
+// rate-limited APIs. Deliberately not a "do all 404" button: that's how people
+// burn a month of credits on contacts they'll never actually message.
+function BulkFindEmails({ clientId, verticalId, onDone }: { clientId: string; verticalId: string; onDone: () => void }) {
+  const { showToast } = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const run = async () => {
+    if (!confirm('Look up emails for the top 25 un-searched contacts by priority?\n\nThis spends credits on your own Apollo/Hunter key.')) return
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/clients/${clientId}/discovery/verticals/${verticalId}/find-emails`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 25 }),
+      })
+      const data = await r.json()
+      if (!r.ok) { showToast(data.error || 'Bulk lookup failed'); return }
+      showToast(`${data.found} found, ${data.missed} no match (of ${data.attempted})${data.errors?.length ? ` — ${data.errors[0]}` : ''}`)
+      onDone()
+    } catch (e: any) {
+      showToast(`Bulk lookup failed: ${e.message}`)
+    } finally { setBusy(false) }
+  }
+
+  return (
+    <button className="btn btn-ghost btn-sm" onClick={run} disabled={busy}>
+      {busy ? 'Looking up…' : '🔍 Find emails (top 25)'}
+    </button>
+  )
+}
+
+// ─── Email discovery (BYO key) ───────────────────────────────────────────────
+// Shows provenance, not just an address: a provider-verified email and a
+// pattern-guessed one look different on purpose, because sending to guesses is
+// what gets a domain blacklisted. Never displays an address we didn't get back
+// from a provider.
+function EmailCell({ clientId, contact, onUpdated }: { clientId: string; contact: Contact; onUpdated: () => void }) {
+  const { showToast } = useToast()
+  const [busy, setBusy] = useState(false)
+
+  const find = async () => {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/find-email`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) { showToast(data.error || 'No email found'); return }
+      showToast(`Found ${data.email} (${data.source}, ${data.confidence ?? '?'}% confidence)`)
+      onUpdated()
+    } catch (e: any) {
+      showToast(`Lookup failed: ${e.message}`)
+    } finally { setBusy(false); }
+  }
+
+  const verify = async () => {
+    setBusy(true)
+    try {
+      const r = await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/verify-email`, { method: 'POST' })
+      const data = await r.json()
+      if (!r.ok) { showToast(data.error || 'Verify failed'); return }
+      showToast(data.status === 'verified' ? 'Verified — safe to send'
+        : data.status === 'invalid' ? 'Invalid — do NOT send, it will bounce'
+        : 'Unproven (accept-all server) — send with care')
+      onUpdated()
+    } catch (e: any) {
+      showToast(`Verify failed: ${e.message}`)
+    } finally { setBusy(false) }
+  }
+
+  if (contact.suppressed) {
+    return <span className="text-muted" style={{ fontSize: '0.78rem' }}>🚫 suppressed</span>
+  }
+
+  if (contact.email) {
+    const verified = contact.email_status === 'verified'
+    const invalid = contact.email_status === 'invalid'
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <span style={{ fontSize: '0.8rem', textDecoration: invalid ? 'line-through' : undefined }}>{contact.email}</span>
+        <span style={{ fontSize: '0.7rem', color: invalid ? '#f87171' : verified ? '#10b981' : 'var(--text-muted, #94a3b8)' }}>
+          {invalid ? '✗ invalid — will bounce'
+            : verified ? '✓ verified'
+            : `~ unverified${contact.email_confidence != null ? ` (${contact.email_confidence}%)` : ''}`}
+          {contact.email_source ? ` · ${contact.email_source}` : ''}
+          {!verified && !invalid && (
+            <button className="btn btn-ghost btn-sm" style={{ fontSize: '0.68rem', padding: '0 4px', marginLeft: 4 }}
+              onClick={verify} disabled={busy}>verify</button>
+          )}
+        </span>
+      </div>
+    )
+  }
+
+  if (contact.email_status === 'not_found') {
+    return (
+      <span className="text-muted" style={{ fontSize: '0.76rem' }}>
+        no match
+        <button className="btn btn-ghost btn-sm" style={{ fontSize: '0.68rem', padding: '0 4px', marginLeft: 4 }}
+          onClick={find} disabled={busy}>retry</button>
+      </span>
+    )
+  }
+
+  return (
+    <button className="btn btn-ghost btn-sm" style={{ fontSize: '0.72rem', padding: '2px 6px' }}
+      onClick={find} disabled={busy}>{busy ? '…' : '🔍 Find'}</button>
   )
 }
 
@@ -838,6 +953,31 @@ function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; cont
     if (r.ok) { showToast('Marked as messaged'); setOpen(false); onUpdated() }
   }
 
+  const suppress = async () => {
+    if (!confirm(`Mark ${contact.full_name} as do-not-contact?\n\nThey'll be excluded from messaging and email lookup on every channel.`)) return
+    await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/suppress`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'manual' }),
+    })
+    showToast(`${contact.full_name} suppressed`)
+    onUpdated()
+  }
+
+  // Suppression wins over everything — no drafting, no lookup, no send.
+  if (contact.suppressed) {
+    return (
+      <span className="text-muted" style={{ fontSize: '0.76rem' }}>
+        🚫 do not contact
+        <button className="btn btn-ghost btn-sm" style={{ fontSize: '0.68rem', padding: '0 4px', marginLeft: 4 }}
+          onClick={async () => {
+            await fetch(`/api/clients/${clientId}/discovery/contacts/${contact.id}/suppress`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ undo: true }),
+            })
+            onUpdated()
+          }}>undo</button>
+      </span>
+    )
+  }
+
   if (contact.outreach_status === 'messaged') {
     return (
       <span className="tag" style={{ background: 'var(--accent-soft, #e6f7f0)' }}>
@@ -851,6 +991,11 @@ function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; cont
       <button className="btn btn-ghost btn-sm" onClick={openPanel} disabled={!contact.linkedin_url}
         title={contact.linkedin_url ? '' : 'No LinkedIn URL on this contact'}>
         ✉️ Message
+      </button>
+      <button className="btn btn-ghost btn-sm" onClick={suppress}
+        style={{ fontSize: '0.7rem', padding: '2px 5px', marginLeft: 4, opacity: 0.6 }}
+        title="Mark do-not-contact — excludes them from messaging and email lookup everywhere">
+        🚫
       </button>
       {open && (
         <div className="modal-overlay" onClick={() => setOpen(false)}>

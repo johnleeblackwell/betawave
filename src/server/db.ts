@@ -963,6 +963,23 @@ ensureCol('dl_contacts', 'context_captured_at', `INTEGER`)
 ensureCol('dl_contacts', 'priority_score',    `INTEGER NOT NULL DEFAULT 50`)
 ensureCol('dl_contacts', 'priority_signals',  `TEXT NOT NULL DEFAULT ''`)
 
+// Email discovery — BYO-key lookup via Apollo/Hunter. `email` itself already
+// exists; these track provenance so a guessed address is never mistaken for a
+// verified one. email_status: not_searched | found | not_found | verified |
+// invalid. Never write an address we didn't actually get back from a provider.
+ensureCol('dl_contacts', 'email_status',     `TEXT NOT NULL DEFAULT 'not_searched'`)
+ensureCol('dl_contacts', 'email_confidence', `INTEGER`)
+ensureCol('dl_contacts', 'email_source',     `TEXT NOT NULL DEFAULT ''`)
+ensureCol('dl_contacts', 'email_found_at',   `INTEGER`)
+
+// Suppression — an unsubscribe / do-not-contact flag that must be honoured
+// across BOTH channels (email and LinkedIn) and must exclude the contact from
+// bulk lookups too. Deliberately a hard flag rather than a delete, so a
+// re-import can never silently resurrect someone who opted out.
+ensureCol('dl_contacts', 'suppressed',        `INTEGER NOT NULL DEFAULT 0`)
+ensureCol('dl_contacts', 'suppressed_at',     `INTEGER`)
+ensureCol('dl_contacts', 'suppressed_reason', `TEXT NOT NULL DEFAULT ''`)
+
 // Deferred indexes — must run AFTER the ensureCol back-fill so the columns exist
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_verticals_client    ON verticals(client_id);

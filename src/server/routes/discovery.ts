@@ -39,6 +39,7 @@ import {
   computeDailyDelta,
 } from '../services/discovery-visibility.js'
 import { generate, ping } from '../services/llm.js'
+import { findEmail, verifyEmail } from '../services/email-finder.js'
 
 const router = Router({ mergeParams: true })
 
@@ -427,6 +428,136 @@ router.delete('/contacts/:id', (req, res) => {
 
   db.prepare(`DELETE FROM dl_contacts WHERE id = ?`).run(id)
   res.json({ ok: true })
+})
+
+// ─── Email discovery (BYO key) + suppression ────────────────────────────────
+// Lookup only ever stores what a provider actually returned — never a guessed
+// or pattern-inferred address. Suppressed contacts are excluded everywhere.
+
+router.post('/contacts/:id/find-email', async (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const row = db.prepare(`
+    SELECT c.*, o.name AS org_name, o.domain AS org_domain
+    FROM dl_contacts c JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId) as any
+  if (!row) return res.status(404).json({ error: 'Contact not found' })
+  if (row.suppressed) return res.status(409).json({ error: 'Contact is suppressed (do not contact)' })
+
+  try {
+    const r = await findEmail({
+      full_name: row.full_name,
+      linkedin_url: row.linkedin_url || undefined,
+      domain: row.org_domain || undefined,
+      company: row.org_name || undefined,
+    })
+
+    if (!r.ok) {
+      // A miss is a real answer — record it so we don't burn credits re-asking.
+      db.prepare(`UPDATE dl_contacts SET email_status = 'not_found', email_found_at = unixepoch() WHERE id = ?`).run(id)
+      return res.status(404).json({ error: r.error || 'No email found', status: 'not_found' })
+    }
+
+    db.prepare(`
+      UPDATE dl_contacts
+      SET email = ?, email_status = ?, email_confidence = ?, email_source = ?, email_found_at = unixepoch()
+      WHERE id = ?
+    `).run(r.email, r.status, r.confidence ?? null, r.source, id)
+
+    res.json({ email: r.email, status: r.status, confidence: r.confidence, source: r.source })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+router.post('/contacts/:id/verify-email', async (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const row = db.prepare(`
+    SELECT c.id, c.email FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId) as any
+  if (!row) return res.status(404).json({ error: 'Contact not found' })
+  if (!row.email) return res.status(400).json({ error: 'No email to verify' })
+
+  try {
+    const r = await verifyEmail(row.email)
+    if (!r.ok) return res.status(400).json({ error: r.error })
+    db.prepare(`UPDATE dl_contacts SET email_status = ?, email_confidence = COALESCE(?, email_confidence) WHERE id = ?`)
+      .run(r.status, r.confidence ?? null, id)
+    res.json({ status: r.status, confidence: r.confidence })
+  } catch (e: any) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Bulk lookup — capped per call, highest-priority first, skips anyone already
+// searched or suppressed. Sequential on purpose: these are paid, rate-limited
+// APIs and hammering them concurrently gets the key throttled.
+router.post('/verticals/:vid/find-emails', async (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const limit = Math.min(Number((req.body as any)?.limit) || 25, 100)
+
+  const rows = db.prepare(`
+    SELECT c.*, o.name AS org_name, o.domain AS org_domain
+    FROM dl_contacts c JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE o.client_id = ? AND o.vertical_id = ?
+      AND c.suppressed = 0
+      AND c.email = ''
+      AND c.email_status = 'not_searched'
+    ORDER BY c.priority_score DESC
+    LIMIT ?
+  `).all(clientId, vid, limit) as any[]
+
+  let found = 0, missed = 0
+  const errors: string[] = []
+  for (const row of rows) {
+    try {
+      const r = await findEmail({
+        full_name: row.full_name,
+        linkedin_url: row.linkedin_url || undefined,
+        domain: row.org_domain || undefined,
+        company: row.org_name || undefined,
+      })
+      if (r.ok) {
+        db.prepare(`
+          UPDATE dl_contacts
+          SET email = ?, email_status = ?, email_confidence = ?, email_source = ?, email_found_at = unixepoch()
+          WHERE id = ?
+        `).run(r.email, r.status, r.confidence ?? null, r.source, row.id)
+        found++
+      } else {
+        db.prepare(`UPDATE dl_contacts SET email_status = 'not_found', email_found_at = unixepoch() WHERE id = ?`).run(row.id)
+        missed++
+        if (r.error && errors.length < 3) errors.push(r.error)
+      }
+    } catch (e: any) {
+      missed++
+      if (errors.length < 3) errors.push(e.message)
+    }
+  }
+
+  res.json({ attempted: rows.length, found, missed, errors })
+})
+
+// Suppression — honoured across BOTH channels. A hard flag, not a delete, so a
+// later re-import can't silently resurrect someone who asked not to be contacted.
+router.post('/contacts/:id/suppress', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const ok = db.prepare(`
+    SELECT 1 FROM dl_contacts c JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE c.id = ? AND o.client_id = ?
+  `).get(id, clientId)
+  if (!ok) return res.status(404).json({ error: 'Contact not found' })
+
+  const { reason, undo } = req.body as { reason?: string; undo?: boolean }
+  if (undo) {
+    db.prepare(`UPDATE dl_contacts SET suppressed = 0, suppressed_at = NULL, suppressed_reason = '' WHERE id = ?`).run(id)
+  } else {
+    db.prepare(`UPDATE dl_contacts SET suppressed = 1, suppressed_at = unixepoch(), suppressed_reason = ? WHERE id = ?`)
+      .run(reason || 'manual', id)
+  }
+  res.json(db.prepare(`SELECT * FROM dl_contacts WHERE id = ?`).get(id))
 })
 
 // ─── LinkedIn outreach — draft + copy + send-yourself (no send API exists) ───

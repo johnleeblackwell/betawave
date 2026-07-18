@@ -50,7 +50,9 @@ const PORT = Number(process.env.PORT || 3001)
 app.use(cors())
 // Raw body for Stripe webhook signature verification (must be before express.json())
 app.use('/api/shop/webhook', express.raw({ type: 'application/json' }))
-app.use(express.json())
+// 10mb (vs the 100kb default) — bulk lead/context pushes from the capture
+// extension send hundreds of records in one request and were hitting 413.
+app.use(express.json({ limit: '10mb' }))
 // For no-JS form fallback on the aim.report landing page (/r/:niche/capture).
 app.use(express.urlencoded({ extended: true }))
 

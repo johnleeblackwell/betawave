@@ -25,6 +25,11 @@ export const PROVIDERS: Record<string, { env: string; label: string; kind: 'key'
   custom_base_url: { env: 'CUSTOM_LLM_BASE_URL', label: 'Custom LLM — base URL',                kind: 'url' },
   custom_api_key:  { env: 'CUSTOM_LLM_API_KEY',  label: 'Custom LLM — API key',                 kind: 'key' },
   custom_model:    { env: 'CUSTOM_LLM_MODEL',    label: 'Custom LLM — model name (e.g. glm-4)', kind: 'url' },
+  // Email finders — bring your own key, you pay the provider directly.
+  // Apollo works from a LinkedIn URL (what Discovery captures); Hunter needs a
+  // company domain + name, so it's the fallback when a domain is known.
+  apollo:          { env: 'APOLLO_API_KEY',      label: 'Apollo.io — email finder (LinkedIn URL)', kind: 'key' },
+  hunter:          { env: 'HUNTER_API_KEY',      label: 'Hunter.io — email finder + verifier (domain)', kind: 'key' },
 }
 
 // Capture .env defaults at module load so clearing a BYO key reverts to .env.
