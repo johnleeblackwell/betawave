@@ -163,7 +163,7 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
           console.warn(`[syndication] pool refresh failed for source ${source.id}: ${e.message}`)
         }
 
-        const poolItem = await pickBestFromPool(client, route.client_id, route.id)
+        const poolItem = await pickBestFromPool(client, route.client_id, route.id, source.id)
         if (!poolItem) { skipped++; continue }
 
         const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, withUtm(poolItem.url, dest.platform), dest.platform)
@@ -478,15 +478,16 @@ async function fetchFromIgGraph(source: Source): Promise<FeedItem[]> {
 async function upsertPoolFromRSS(source: Source, clientId: string): Promise<void> {
   const items = await fetchFromRSS(source)
   const stmt = db.prepare(`
-    INSERT INTO syndication_pool (id, client_id, source_type, source_item_id, url, title, body, pub_date)
-    VALUES (?, ?, 'rss', ?, ?, ?, ?, ?)
+    INSERT INTO syndication_pool (id, client_id, source_id, source_type, source_item_id, url, title, body, pub_date)
+    VALUES (?, ?, ?, 'rss', ?, ?, ?, ?, ?)
     ON CONFLICT(client_id, source_item_id) DO UPDATE SET
-      url   = excluded.url,
-      title = excluded.title,
-      body  = excluded.body
+      url       = excluded.url,
+      title     = excluded.title,
+      body      = excluded.body,
+      source_id = excluded.source_id
   `)
   for (const item of items) {
-    stmt.run(crypto.randomUUID(), clientId, item.id, item.url, item.title,
+    stmt.run(crypto.randomUUID(), clientId, source.id, item.id, item.url, item.title,
              item.content.slice(0, 3000), item.pub_date ?? null)
   }
 }
@@ -502,7 +503,7 @@ const POOL_COOLDOWN_SECS = POOL_COOLDOWN_DAYS * 24 * 60 * 60
  * Claude Haiku to pick the seasonally-appropriate item from the shortlist.
  * Falls back to the highest-priority candidate if the LLM call fails.
  */
-async function pickBestFromPool(client: any, clientId: string, routeId: string): Promise<PoolItem | null> {
+async function pickBestFromPool(client: any, clientId: string, routeId: string, sourceId?: string): Promise<PoolItem | null> {
   const now = Math.floor(Date.now() / 1000)
   const cutoff = now - POOL_COOLDOWN_SECS
 
@@ -518,9 +519,10 @@ async function pickBestFromPool(client: any, clientId: string, routeId: string):
     SELECT * FROM syndication_pool
     WHERE client_id = ?
       AND (last_tweeted_at IS NULL OR last_tweeted_at < ?)
+      AND (? IS NULL OR source_id = ? OR source_id IS NULL)
     ORDER BY tweet_count ASC, COALESCE(last_tweeted_at, 0) ASC, COALESCE(pub_date, 0) DESC
     LIMIT 20
-  `).all(clientId, cutoff) as unknown as PoolItem[])
+  `).all(clientId, cutoff, sourceId ?? null, sourceId ?? null) as unknown as PoolItem[])
     .filter(p => !recentIds.has(p.source_item_id))
     .slice(0, 15)
 
@@ -1139,7 +1141,7 @@ export async function previewRoute(routeId: string): Promise<{
     if (source.source_type === 'rss') {
       // Pool path: refresh + LLM pick so preview shows exactly what the next real post would be
       await upsertPoolFromRSS(source, route.client_id)
-      const poolItem = await pickBestFromPool(client, route.client_id, route.id)
+      const poolItem = await pickBestFromPool(client, route.client_id, route.id, source.id)
       if (!poolItem) return { ok: false, error: 'No suitable content in pool for today — try again after more blog posts are published or the cooldown window resets' }
       const rewritten = await rewriteForX(client, poolItem.title, poolItem.body, route.rewrite_prompt, withUtm(poolItem.url, previewPlatform), previewPlatform)
       return {

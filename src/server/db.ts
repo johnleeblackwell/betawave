@@ -1323,6 +1323,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_syn_pool_client ON syndication_pool(client_id, last_tweeted_at);
 `)
 
+// The pool was originally client-wide (one RSS source per client). With
+// multiple sources per client each pool row must remember which source it
+// came from, or routes cross-post each other's content. NULL = legacy row.
+{
+  const cols = (db.prepare(`PRAGMA table_info(syndication_pool)`).all() as any[]).map(c => c.name)
+  if (!cols.includes('source_id')) {
+    db.exec(`ALTER TABLE syndication_pool ADD COLUMN source_id TEXT`)
+  }
+}
+
 // Drop the unique constraint on syndications so pool items can be re-promoted
 // after the cooldown window without violating the index.
 {
