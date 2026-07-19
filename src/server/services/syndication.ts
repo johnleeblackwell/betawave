@@ -620,6 +620,15 @@ const REWRITE_SPECS: Record<string, { label: string; budget: number; appendUrl: 
 - End with a question or soft invitation to comment when natural
 - At most 1–2 hashtags, or none`,
   },
+  linkedin: {
+    label: 'LinkedIn', budget: 2500, appendUrl: false,
+    rules: `- 120–200 words. LinkedIn's hard limit is 3000 characters — do not write a tweet
+- Do NOT include a URL. LinkedIn suppresses reach on posts carrying external links,
+  so the post must stand alone and deliver the insight rather than tease it
+- Open with a specific, concrete claim. Never a question hook ("Ever wondered…")
+- Short paragraphs, one or two sentences each, separated by blank lines
+- No hashtags, no emoji, no engagement-bait CTA`,
+  },
   instagram: {
     label: 'Instagram', budget: 2000, appendUrl: false,
     rules: `- 100–150 word caption. The FIRST LINE must hook — it's all that shows before "…more"
