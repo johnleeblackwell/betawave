@@ -604,6 +604,7 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
           <label className="form-label">Platform</label>
           <select className="form-input" value={p} onChange={e => onChange({ ...form, platform: e.target.value })} disabled={editMode}>
             <option value="x">𝕏  X / Twitter</option>
+            <option value="linkedin">💼  LinkedIn (personal profile)</option>
             <option value="telegram">✈️  Telegram</option>
             <option value="reddit">🔴  Reddit</option>
             <option value="medium">📝  Medium</option>
@@ -614,7 +615,7 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
         <div>
           <label className="form-label">Label *</label>
           <input className="form-input" value={form.label} onChange={e => onChange({ ...form, label: e.target.value })}
-            placeholder={{ x: 'My X account', telegram: 'My Telegram channel', reddit: 'My Reddit account', medium: 'My Medium blog', facebook: 'My Facebook Page', instagram: 'My Instagram account' }[p] || 'Account label'} />
+            placeholder={{ x: 'My X account', linkedin: 'My LinkedIn profile', telegram: 'My Telegram channel', reddit: 'My Reddit account', medium: 'My Medium blog', facebook: 'My Facebook Page', instagram: 'My Instagram account' }[p] || 'Account label'} />
         </div>
       </div>
 
@@ -644,6 +645,31 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
             <div>
               <label className="form-label">Access Token Secret</label>
               <input className="form-input" type="password" value={form.access_secret} onChange={e => onChange({ ...form, access_secret: e.target.value })} placeholder={editMode ? blank : 'Access token secret'} />
+            </div>
+          </div>
+        </>
+      )}
+
+      {p === 'linkedin' && (
+        <>
+          <div style={{ background: 'var(--accent-soft)', padding: 10, borderRadius: 6, fontSize: '0.82rem', marginBottom: 12 }}>
+            1. Create an app at <a href="https://developer.linkedin.com" target="_blank" rel="noreferrer">developer.linkedin.com</a>, request the <strong>Share on LinkedIn</strong> + <strong>Sign In with OpenID Connect</strong> products (both instant).<br />
+            2. <strong>Docs and tools → OAuth Token Tools → Create token</strong>, scopes <code>openid profile w_member_social</code> → copy the access token.<br />
+            3. <strong>Person URN:</strong> call <code>GET api.linkedin.com/v2/userinfo</code> with that token — your URN is <code>urn:li:person:&lt;sub&gt;</code>.<br />
+            ⚠️ LinkedIn tokens expire after ~60 days — refresh before then or posting silently stops.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <label className="form-label">Handle (cosmetic)</label>
+              <input className="form-input" value={form.handle} onChange={e => onChange({ ...form, handle: e.target.value })} placeholder="in/yourname" />
+            </div>
+            <div>
+              <label className="form-label">Person URN *</label>
+              <input className="form-input" value={form.account_id} onChange={e => onChange({ ...form, account_id: e.target.value })} placeholder="urn:li:person:XXXX" />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label className="form-label">Access token {editMode && <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}>(leave blank to keep)</span>}</label>
+              <input className="form-input" type="password" value={form.access_token} onChange={e => onChange({ ...form, access_token: e.target.value })} placeholder={editMode ? blank : 'OAuth token with w_member_social'} />
             </div>
           </div>
         </>
