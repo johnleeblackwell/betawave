@@ -111,31 +111,17 @@ the message text here, on its own lines
 
   const prompt = `Write the message for this person.\n\n${lines.join('\n')}`
 
-  try {
-    // The fallback model intermittently returns an empty string. One retry
-    // costs a second and turns most blanks into a usable draft.
-    let raw = ''
-    for (let attempt = 0; attempt < 2 && !raw; attempt++) {
-      const result = await generate(client as any, { prompt, system, max_tokens: 600, temperature: 0.85 })
-      raw = (result.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
-    }
-    if (!raw) {
-      return res.status(502).json({
-        classification: 'unknown', reason: 'The model returned nothing twice — hit Draft again.',
-        pitch: '', hook: '', chars: 0,
-      })
-    }
-
-    // Line-delimited rather than JSON on purpose: the Big Pickle fallback model
-    // returns an EMPTY string when asked for strict JSON (verified — a plain
-    // prompt works, the same prompt asking for JSON returns ""). This format
-    // survives every model we've tried.
+  // Line-delimited rather than JSON on purpose: the Big Pickle fallback model
+  // returns an EMPTY string when asked for strict JSON (verified — a plain
+  // prompt works, the same prompt asking for JSON returns ""). This format
+  // survives every model we've tried.
+  const parseReply = (raw: string) => {
     const grab = (label: string) => {
       const m = raw.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'))
       return m ? m[1].trim() : ''
     }
     const pitchIdx = raw.search(/^PITCH:\s*$/im)
-    const parsed = {
+    return {
       // Default to 'unknown', never 'prospect' — labelling something a prospect
       // when the model didn't actually say so is a lie the user would act on.
       classification: (grab('CLASSIFICATION') || 'unknown').toLowerCase().replace(/[^a-z]/g, ''),
@@ -152,6 +138,29 @@ the message text here, on its own lines
             return nl === -1 ? '' : raw.slice(nl + 1).trim()
           })()
         : (/^(CLASSIFICATION|REASON|HOOK):/im.test(raw) ? '' : raw),
+    }
+  }
+
+  try {
+    // Retry until the reply is actually USABLE, not merely non-empty. The
+    // fallback model sometimes returns nothing, and sometimes returns a
+    // fragment ("Hi there." — 10 chars) that looks broken in the panel. A
+    // 'skip' with no pitch is a legitimate result and accepted immediately.
+    const MIN_PITCH = 80
+    let parsed: ReturnType<typeof parseReply> | null = null
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const result = await generate(client as any, { prompt, system, max_tokens: 600, temperature: 0.85 })
+      const raw = (result.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+      if (!raw) continue
+      const p = parseReply(raw)
+      if (p.classification === 'skip' || p.pitch.trim().length >= MIN_PITCH) { parsed = p; break }
+      parsed = p   // keep the best effort in case every attempt is short
+    }
+    if (!parsed || (parsed.classification !== 'skip' && !parsed.pitch.trim())) {
+      return res.status(502).json({
+        classification: 'unknown', reason: 'The model gave nothing usable after 3 tries — hit Draft again.',
+        pitch: '', hook: '', chars: 0,
+      })
     }
 
     let pitch = String(parsed.pitch || '').trim()
