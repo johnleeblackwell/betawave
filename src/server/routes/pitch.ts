@@ -143,10 +143,14 @@ the message text here, on its own lines
       hook: grab('HOOK').replace(/^none$/i, ''),
       // Everything after the PITCH: line is the message. If the model ignored
       // the format entirely, fall back to using the whole reply.
+      // NB: when PITCH: is the final line (the skip case) indexOf returns -1,
+      // and slice(-1 + 1) would hand back the entire reply including its own
+      // scaffolding. Guard it explicitly.
       pitch: pitchIdx >= 0
-        ? raw.slice(raw.indexOf('\n', pitchIdx) + 1).trim()
-        : (/^(CLASSIFICATION|REASON|HOOK):/im.test(raw) ? '' : raw),
-    }
+        ? (() => {
+            const nl = raw.indexOf('\n', pitchIdx)
+            return nl === -1 ? '' : raw.slice(nl + 1).trim()
+          }
 
     let pitch = String(parsed.pitch || '').trim()
     if (pitch.length > limit + 80) pitch = pitch.slice(0, limit).replace(/\s+\S*$/, '') + '…'
