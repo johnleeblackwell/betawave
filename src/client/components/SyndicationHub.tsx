@@ -87,14 +87,20 @@ function RoutesTab({ clientId, routes, sources, destinations, onChange }: {
   const [showAdd, setShowAdd] = useState(false)
   const [previewing, setPreviewing] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<any>(null)
+  const [previewRouteId, setPreviewRouteId] = useState<string | null>(null)
+  const [editableDraft, setEditableDraft] = useState('')
+  const [approving, setApproving] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editForm, setEditForm] = useState({ source_id: '', destination_id: '', daily_cap: '10', rewrite_prompt: '' })
   const [saving, setSaving] = useState(false)
 
   const previewRoute = async (routeId: string) => {
-    setPreviewing(routeId); setPreviewResult(null)
+    setPreviewing(routeId); setPreviewResult(null); setPreviewRouteId(routeId)
     const res = await fetch(`/api/clients/${clientId}/syndication/routes/${routeId}/preview`, { method: 'POST' })
-    setPreviewResult(await res.json()); setPreviewing(null)
+    const data = await res.json()
+    setPreviewResult(data)
+    setEditableDraft(data?.rewritten || '')   // seed the editable box with the generated draft
+    setPreviewing(null)
   }
   const runNow = async (routeId: string) => {
     const res = await fetch(`/api/clients/${clientId}/syndication/routes/${routeId}/run-now`, { method: 'POST' })
@@ -224,8 +230,44 @@ function RoutesTab({ clientId, routes, sources, destinations, onChange }: {
                   <strong>{previewResult.source_item?.title}</strong>
                   <div style={{ marginTop: 4, color: 'var(--text-secondary)' }}>{previewResult.source_item?.content}</div>
                 </div>
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: 6 }}>Rewritten ({previewResult.rewritten?.length || 0} chars):</div>
-                <div style={{ padding: 10, background: 'var(--accent-soft)', borderRadius: 6, fontSize: '0.95rem', lineHeight: 1.5 }}>{previewResult.rewritten}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-tertiary)', marginBottom: 6 }}>
+                  Rewritten ({editableDraft.length} chars) — edit freely before approving:
+                </div>
+                <textarea
+                  className="form-input"
+                  style={{ width: '100%', minHeight: 180, fontSize: '0.95rem', lineHeight: 1.5, fontFamily: 'inherit' }}
+                  value={editableDraft}
+                  onChange={e => setEditableDraft(e.target.value)}
+                />
+                <div style={{ background: 'var(--bg-elevated-2)', borderRadius: 6, padding: 10, fontSize: '0.8rem', margin: '10px 0', color: 'var(--text-secondary)' }}>
+                  ⚠️ Without approval this is only a <strong>sample</strong> — the next tick generates fresh text and posts
+                  that instead. <strong>Approve</strong> to lock this exact wording: it posts verbatim next run, once.
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary btn-sm" disabled={approving || !editableDraft.trim()}
+                    onClick={async () => {
+                      setApproving(true)
+                      try {
+                        const r = await fetch(`/api/clients/${clientId}/syndication/routes/${previewRouteId}/approve`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            text: editableDraft,
+                            source_item_id: previewResult.source_item?.id,
+                            source_url: previewResult.source_item?.url,
+                            source_title: previewResult.source_item?.title,
+                          }),
+                        })
+                        if (!r.ok) { const d = await r.json(); showToast(d.error || 'Approve failed', 'error'); return }
+                        showToast('Approved — this exact text posts on the next run')
+                        setPreviewResult(null)
+                      } finally { setApproving(false) }
+                    }}>
+                    {approving ? <span className="loading" /> : '✓ Approve this exact text'}
+                  </button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setEditableDraft(previewResult.rewritten || '')}>
+                    ↺ Reset edits
+                  </button>
+                </div>
               </>
             ) : (
               <div style={{ color: 'var(--danger)' }}>❌ {previewResult.error}</div>

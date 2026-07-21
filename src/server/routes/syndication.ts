@@ -228,6 +228,47 @@ router.post('/routes/:id/preview', async (req, res) => {
   res.json(await previewRoute(id))
 })
 
+// ─── Approved drafts — "post exactly this text" ──────────────────────────────
+// A preview is a sample of what the LLM will write, not a contract. Approving a
+// draft parks the exact text; the next tick for that route posts it verbatim
+// instead of regenerating, then consumes it.
+
+router.get('/routes/:id/approved', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const row = db.prepare(`SELECT 1 FROM syndication_routes WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!row) return res.status(404).json({ error: 'Route not found' })
+  res.json(db.prepare(`
+    SELECT * FROM syndication_approved WHERE route_id = ? AND status = 'pending' ORDER BY approved_at ASC
+  `).all(id))
+})
+
+router.post('/routes/:id/approve', (req, res) => {
+  const { clientId, id } = req.params as { clientId: string; id: string }
+  const row = db.prepare(`SELECT 1 FROM syndication_routes WHERE id = ? AND client_id = ?`).get(id, clientId)
+  if (!row) return res.status(404).json({ error: 'Route not found' })
+
+  const { text, source_item_id, source_url, source_title } = req.body as {
+    text?: string; source_item_id?: string; source_url?: string; source_title?: string
+  }
+  if (!text?.trim()) return res.status(400).json({ error: 'text required' })
+
+  const approvedId = crypto.randomUUID()
+  db.prepare(`
+    INSERT INTO syndication_approved (id, client_id, route_id, source_item_id, source_url, source_title, text)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(approvedId, clientId, id, source_item_id || '', source_url || '', source_title || '', text.trim())
+
+  res.json(db.prepare(`SELECT * FROM syndication_approved WHERE id = ?`).get(approvedId))
+})
+
+router.delete('/approved/:approvedId', (req, res) => {
+  const { clientId, approvedId } = req.params as { clientId: string; approvedId: string }
+  const ok = db.prepare(`SELECT 1 FROM syndication_approved WHERE id = ? AND client_id = ?`).get(approvedId, clientId)
+  if (!ok) return res.status(404).json({ error: 'Approved draft not found' })
+  db.prepare(`UPDATE syndication_approved SET status='discarded' WHERE id = ?`).run(approvedId)
+  res.json({ ok: true })
+})
+
 router.post('/routes/:id/run-now', async (req, res) => {
   // Forces an immediate full-pipeline tick (across ALL routes); a future
   // refinement could isolate to just this route's id. Today: run all + report.

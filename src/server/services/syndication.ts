@@ -155,6 +155,50 @@ export async function runSyndicationTick(): Promise<{ posted: number; failed: nu
     const client = db.prepare(`SELECT * FROM clients WHERE id = ?`).get(route.client_id) as any
 
     try {
+      // ── Approved draft takes precedence over everything ──
+      // If a specific draft was approved for this route, post THAT text
+      // verbatim rather than generating something new. This is the whole point:
+      // what you read is what ships. Consumed once posted.
+      const approved = db.prepare(`
+        SELECT * FROM syndication_approved
+        WHERE route_id = ? AND status = 'pending'
+        ORDER BY approved_at ASC LIMIT 1
+      `).get(route.id) as any
+      if (approved) {
+        const syndId = crypto.randomUUID()
+        db.prepare(`
+          INSERT INTO syndications
+            (id, client_id, route_id, source_id, destination_id, source_item_id,
+             source_url, source_text, rewritten_text, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+        `).run(syndId, route.client_id, route.id, source.id, dest.id, approved.source_item_id,
+               approved.source_url, approved.source_title, approved.text)
+        try {
+          let media: string[] = []
+          if (dest.platform === 'instagram' || dest.platform === 'facebook') {
+            media = await sourceMediaForPost(client, approved.source_title || '')
+          }
+          const { id: postedId, url: postedUrl } = await postToDestination(dest, approved.text, media)
+          const now = Math.floor(Date.now() / 1000)
+          db.prepare(`UPDATE syndications SET status='posted', posted_id=?, posted_url=?, posted_at=? WHERE id=?`)
+            .run(postedId, postedUrl, now, syndId)
+          db.prepare(`UPDATE syndication_routes SET posts_today = posts_today + 1 WHERE id = ?`).run(route.id)
+          db.prepare(`UPDATE syndication_approved SET status='posted', posted_at=? WHERE id=?`).run(now, approved.id)
+          // Mark the source item used so the pool doesn't immediately re-pick it.
+          if (approved.source_item_id) {
+            db.prepare(`UPDATE syndication_pool SET last_tweeted_at=?, tweet_count=tweet_count+1 WHERE client_id=? AND source_item_id=?`)
+              .run(now, route.client_id, approved.source_item_id)
+          }
+          posted++
+          console.log(`[syndication] APPROVED post: ${dest.handle} (${dest.platform}) — exact text as approved (${approved.text.length} chars)`)
+        } catch (e: any) {
+          markFailed(syndId, e.message)
+          failed++
+          console.error(`[syndication] approved post failed:`, e.message)
+        }
+        continue
+      }
+
       if (source.source_type === 'rss') {
         // ── Pool-based path: refresh library, LLM picks the best post for today ──
         try {

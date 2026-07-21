@@ -1323,6 +1323,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_syn_pool_client ON syndication_pool(client_id, last_tweeted_at);
 `)
 
+// Approved drafts — "post exactly this text, don't regenerate".
+// A preview is a *sample* of what the LLM will write, not a contract: the tick
+// regenerates at post time, so what ships isn't what you read. When you approve
+// a specific draft it's parked here, and the next tick for that route posts it
+// verbatim and consumes it. Empty table = normal autonomous behaviour.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS syndication_approved (
+    id              TEXT PRIMARY KEY,
+    client_id       TEXT NOT NULL,
+    route_id        TEXT NOT NULL,
+    source_item_id  TEXT NOT NULL DEFAULT '',
+    source_url      TEXT NOT NULL DEFAULT '',
+    source_title    TEXT NOT NULL DEFAULT '',
+    text            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',  -- pending | posted | discarded
+    approved_at     INTEGER DEFAULT (unixepoch()),
+    posted_at       INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_syn_approved_route ON syndication_approved(route_id, status);
+`)
+
 // The pool was originally client-wide (one RSS source per client). With
 // multiple sources per client each pool row must remember which source it
 // came from, or routes cross-post each other's content. NULL = legacy row.
