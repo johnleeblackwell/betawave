@@ -150,7 +150,9 @@ the message text here, on its own lines
         ? (() => {
             const nl = raw.indexOf('\n', pitchIdx)
             return nl === -1 ? '' : raw.slice(nl + 1).trim()
-          }
+          })()
+        : (/^(CLASSIFICATION|REASON|HOOK):/im.test(raw) ? '' : raw),
+    }
 
     let pitch = String(parsed.pitch || '').trim()
     if (pitch.length > limit + 80) pitch = pitch.slice(0, limit).replace(/\s+\S*$/, '') + '…'
