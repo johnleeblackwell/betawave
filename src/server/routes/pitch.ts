@@ -174,7 +174,14 @@ the message text here, on its own lines
       chars: pitch.length,
     })
   } catch (e: any) {
-    res.status(500).json({ error: e.message })
+    const msg = String(e?.message || e)
+    // Every provider in the chain can rate-limit, and clicking Draft twice in
+    // quick succession is enough to trigger it. Say that, rather than showing
+    // a raw provider error the user can do nothing with.
+    const friendly = /429|rate limit|quota|too many/i.test(msg)
+      ? 'All the AI providers are rate-limited right now — wait a few seconds and hit Draft again.'
+      : msg
+    res.status(500).json({ classification: 'error', reason: friendly, pitch: '', hook: '', chars: 0, error: friendly })
   }
 })
 
