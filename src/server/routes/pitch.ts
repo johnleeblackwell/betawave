@@ -86,8 +86,14 @@ RULES FOR THE OPENER:
 - Under ${limit} characters. ${isNote ? 'This is a connection request note — hard limit, be very tight.' : ''}
 - No emojis. No hashtags. No links. Plain text, no markdown, no subject line.
 
-Return ONLY strict JSON, no code fences:
-{"classification":"prospect|partner|skip","reason":"one short line on why","pitch":"the message, or empty string if skip","hook":"the specific detail you opened with, or empty"}`
+Reply in EXACTLY this format, nothing before or after. Do not use JSON, do not use code fences:
+CLASSIFICATION: prospect
+REASON: one short line on why
+HOOK: the specific detail you opened with, or none
+PITCH:
+the message text here, on its own lines
+
+(If the classification is skip, still give CLASSIFICATION and REASON but leave the PITCH section empty.)`
 
   const lines: string[] = []
   if (b.name) lines.push(`Name: ${b.name}`)
@@ -109,13 +115,24 @@ Return ONLY strict JSON, no code fences:
     const result = await generate(client as any, { prompt, system, max_tokens: 600, temperature: 0.85 })
     const raw = (result.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
 
-    let parsed: any
-    try {
-      parsed = JSON.parse(raw)
-    } catch {
-      // Model ignored the JSON instruction — treat the whole reply as the pitch
-      // rather than failing in the user's face.
-      parsed = { classification: 'prospect', reason: 'unstructured model reply', pitch: raw, hook: '' }
+    // Line-delimited rather than JSON on purpose: the Big Pickle fallback model
+    // returns an EMPTY string when asked for strict JSON (verified — a plain
+    // prompt works, the same prompt asking for JSON returns ""). This format
+    // survives every model we've tried.
+    const grab = (label: string) => {
+      const m = raw.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'))
+      return m ? m[1].trim() : ''
+    }
+    const pitchIdx = raw.search(/^PITCH:\s*$/im)
+    const parsed = {
+      classification: (grab('CLASSIFICATION') || 'prospect').toLowerCase().replace(/[^a-z]/g, ''),
+      reason: grab('REASON'),
+      hook: grab('HOOK').replace(/^none$/i, ''),
+      // Everything after the PITCH: line is the message. If the model ignored
+      // the format entirely, fall back to using the whole reply.
+      pitch: pitchIdx >= 0
+        ? raw.slice(raw.indexOf('\n', pitchIdx) + 1).trim()
+        : (/^(CLASSIFICATION|REASON|HOOK):/im.test(raw) ? '' : raw),
     }
 
     let pitch = String(parsed.pitch || '').trim()
