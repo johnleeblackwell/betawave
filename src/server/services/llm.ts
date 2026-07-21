@@ -142,12 +142,26 @@ export async function generate(client: ClientLLMConfig | null, opts: GenerateOpt
       const zenKey = process.env.OPENCODE_ZEN_API_KEY
       if (isAnthropicUnavailable(e) && zenKey) {
         console.warn(`[llm] Anthropic unavailable (${e?.status}) — falling back to Big Pickle (opencode zen): ${e?.message || ''}`)
-        return generateOpenAICompat({
+        const zenResult = await generateOpenAICompat({
           provider: 'zen',
           model: DEFAULT_MODEL.zen,
           apiKey: zenKey,
           baseURL: DEFAULT_BASE_URL.zen,
         }, opts, max_tokens, temperature)
+
+        // Big Pickle intermittently returns an empty string with a 200 — no
+        // error to catch, just nothing. Callers then render a blank draft or a
+        // confusing 502. Cascade to OpenAI rather than handing back silence.
+        if (!zenResult.text?.trim() && process.env.OPENAI_API_KEY) {
+          console.warn('[llm] Big Pickle returned an empty response — cascading to OpenAI')
+          return generateOpenAICompat({
+            provider: 'openai',
+            model: DEFAULT_MODEL.openai,
+            apiKey: process.env.OPENAI_API_KEY,
+            baseURL: DEFAULT_BASE_URL.openai,
+          }, opts, max_tokens, temperature)
+        }
+        return zenResult
       }
       throw e
     }
