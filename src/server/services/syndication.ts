@@ -769,7 +769,11 @@ async function postToLinkedIn(dest: Destination & { account_id?: string }, text:
   if (!authorUrn) throw new Error('LinkedIn destination needs account_id (your person URN, e.g. urn:li:person:abc123) — see docs/syndicate.md')
   if (!dest.access_token) throw new Error('LinkedIn destination needs access_token (OAuth token with the w_member_social scope)')
 
-  const LI_VERSION = '202401'
+  // LinkedIn only keeps ~12 months of monthly API versions active, then returns
+  // HTTP 426 NONEXISTENT_VERSION and posting stops dead. Overridable via env so
+  // a future expiry is a one-line .env change, not a code deploy. Verified
+  // active 2026-07: 202601+ (anything <= 202512 was already dead).
+  const LI_VERSION = (process.env.LINKEDIN_API_VERSION || '202606').trim()
   const headers = {
     'Authorization': `Bearer ${dest.access_token}`,
     'Content-Type': 'application/json',
@@ -805,6 +809,17 @@ async function postToLinkedIn(dest: Destination & { account_id?: string }, text:
   })
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
+    // 426 = the pinned API version aged out. Say so plainly — the raw message
+    // ("NONEXISTENT_VERSION") doesn't tell you the one-line fix.
+    if (res.status === 426) {
+      throw new Error(
+        `LinkedIn API version ${LI_VERSION} is no longer active. LinkedIn retires versions after ~12 months. ` +
+        `Fix: set LINKEDIN_API_VERSION=YYYYMM in .env to a current month and restart. Raw: ${errText.slice(0, 150)}`
+      )
+    }
+    if (res.status === 401) {
+      throw new Error(`LinkedIn token rejected (401) — tokens expire after ~60 days. Regenerate at developer.linkedin.com → OAuth Token Tools and update the destination.`)
+    }
     throw new Error(`LinkedIn API HTTP ${res.status}: ${errText.slice(0, 300)}`)
   }
   // LinkedIn's Posts API returns the created post's id in a response header, not the body.
