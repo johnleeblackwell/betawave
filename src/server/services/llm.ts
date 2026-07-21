@@ -6,8 +6,12 @@
  * (Anthropic/OpenAI/Perplexity/Gemini) directly so the data reflects what
  * actual users see. See services/citation-tracker.ts for that path.
  *
+ * Every completion is written to the `llm_usage` ledger (successes and failures
+ * both) so spend is answerable from inside βWave rather than only from the
+ * provider's dashboard. See routes/settings.ts for the summary endpoint.
+ *
  * Each client can configure their own provider for cost control:
- *   - anthropic  (Claude Haiku 4.5 default — premium quality, ~£0.80/M tokens)
+ *   - anthropic  (Claude Opus 4.8 default — top quality, ~£4/£20 per M tokens)
  *   - deepseek   (DeepSeek V3 — OpenAI-compatible, ~£0.15/M tokens, China-hosted)
  *   - qwen       (Qwen 2.5 72B via OpenRouter — ~£0.40/M tokens)
  *   - ollama     (local — zero API cost, requires base_url to local instance)
@@ -16,12 +20,15 @@
  * If a client hasn't configured anything, falls back to env defaults.
  */
 
+import db from '../db.js'
 import { getClient } from './claude.js'
 import type { TextBlock } from '@anthropic-ai/sdk/resources/messages.js'
 
 export type LLMProvider = 'anthropic' | 'deepseek' | 'qwen' | 'ollama' | 'openai' | 'zen' | 'custom'
 
 export interface ClientLLMConfig {
+  /** Present on real client rows; used only to attribute usage. */
+  id?: string
   llm_content_provider?: string
   llm_content_model?: string
   llm_content_api_key?: string
@@ -32,7 +39,10 @@ export interface GenerateOpts {
   system?: string
   prompt: string
   max_tokens?: number
+  /** Ignored on Claude Opus 4.7+ / Sonnet 5 / Fable 5 — see acceptsSampling(). */
   temperature?: number
+  /** Free-text label for the usage ledger, e.g. 'pitch', 'content', 'syndication'. */
+  purpose?: string
 }
 
 export interface GenerateResult {
@@ -44,9 +54,9 @@ export interface GenerateResult {
   cost_gbp: number
 }
 
-// Cost per million tokens (input, output) in GBP. Approximate Q2 2026.
+// Cost per million tokens (input, output) in GBP. Approximate Q3 2026.
 const COST_PER_M: Record<LLMProvider, [number, number]> = {
-  anthropic: [0.65, 3.20],     // Haiku 4.5
+  anthropic: [3.95, 19.75],    // Opus 4.8 — $5/$25 per M tokens at ~0.79 USD→GBP
   deepseek:  [0.12, 0.18],     // V3
   qwen:      [0.30, 0.40],     // 2.5 72B via OpenRouter
   openai:    [0.12, 0.50],     // gpt-4o-mini
@@ -56,7 +66,7 @@ const COST_PER_M: Record<LLMProvider, [number, number]> = {
 }
 
 const DEFAULT_MODEL: Record<LLMProvider, string> = {
-  anthropic: 'claude-haiku-4-5',
+  anthropic: 'claude-opus-4-8',
   deepseek:  'deepseek-chat',
   qwen:      'qwen/qwen-2.5-72b-instruct',
   openai:    'gpt-4o-mini',
@@ -115,8 +125,58 @@ function isAnthropicUnavailable(e: any): boolean {
   return false
 }
 
-/** One-shot completion. Returns text + token usage + estimated GBP cost. */
+/**
+ * Claude Opus 4.7+, Sonnet 5 and Fable 5 REMOVED temperature/top_p/top_k — a
+ * request carrying any of them returns 400, it is not silently ignored. Steering
+ * on those models is via the prompt. Older Claude models still accept it, as do
+ * all the OpenAI-compatible providers, so this is a per-model decision rather
+ * than a blanket removal.
+ */
+function acceptsSampling(model: string): boolean {
+  return !/^claude-(opus-4-[78]|sonnet-5|fable-5|mythos-5)/.test(model)
+}
+
+const recordUsage = db.prepare(`
+  INSERT INTO llm_usage
+    (client_id, purpose, requested_provider, provider, model,
+     tokens_in, tokens_out, cost_gbp, latency_ms, ok, error)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`)
+
+/**
+ * One-shot completion. Returns text + token usage + estimated GBP cost, and
+ * writes a row to `llm_usage` either way — a failed call is the most valuable
+ * row in the table when a key hits its cap.
+ *
+ * Ledger writes are best-effort: a bookkeeping failure must never take down
+ * the generation that succeeded.
+ */
 export async function generate(client: ClientLLMConfig | null, opts: GenerateOpts): Promise<GenerateResult> {
+  const started = Date.now()
+  const requested = resolveProvider(client).provider
+  try {
+    const result = await generateInner(client, opts)
+    try {
+      recordUsage.run(
+        client?.id || '', opts.purpose || '', requested, result.provider, result.model,
+        result.tokens_in, result.tokens_out, result.cost_gbp, Date.now() - started, 1, '',
+      )
+    } catch (logErr: any) {
+      console.warn('[llm] usage ledger write failed:', logErr?.message || logErr)
+    }
+    return result
+  } catch (e: any) {
+    try {
+      recordUsage.run(
+        client?.id || '', opts.purpose || '', requested, '', '',
+        0, 0, 0, Date.now() - started, 0, String(e?.message || e).slice(0, 500),
+      )
+    } catch { /* ignore — the original error matters more */ }
+    throw e
+  }
+}
+
+async function generateInner(client: ClientLLMConfig | null, opts: GenerateOpts): Promise<GenerateResult> {
   const { provider, model, apiKey, baseURL } = resolveProvider(client)
   const max_tokens = opts.max_tokens ?? 2000
   const temperature = opts.temperature ?? 0.7
@@ -124,13 +184,14 @@ export async function generate(client: ClientLLMConfig | null, opts: GenerateOpt
   if (provider === 'anthropic') {
     if (!apiKey) throw new Error('Anthropic API key not configured')
     try {
-      const r = await getClient(apiKey).messages.create({
+      const req: any = {
         model,
         max_tokens,
-        temperature,
         system: opts.system,
         messages: [{ role: 'user', content: opts.prompt }],
-      })
+      }
+      if (acceptsSampling(model)) req.temperature = temperature
+      const r = await getClient(apiKey).messages.create(req)
       const text = r.content.filter((b): b is TextBlock => b.type === 'text').map(b => b.text).join('')
       const ti = r.usage.input_tokens
       const to = r.usage.output_tokens
@@ -221,6 +282,7 @@ export async function ping(client: ClientLLMConfig): Promise<{
       prompt: 'Say "ok" in one word.',
       max_tokens: 10,
       temperature: 0,
+      purpose: 'ping',
     })
     return { ok: true, latency_ms: Date.now() - start, result }
   } catch (e: any) {

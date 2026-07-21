@@ -1545,4 +1545,32 @@ db.exec(`
   add('source_ref', `source_ref TEXT DEFAULT ''`)   // e.g. '<citation_run_id>:<query_id>'
 }
 
+// ─── LLM usage ledger ────────────────────────────────────────────────────────
+// services/llm.ts has always computed cost_gbp per call and then discarded it,
+// so "what did generation cost me this month?" could only be answered from the
+// provider's own dashboard. One row per completion, successes and failures
+// both — a run of failures IS the signal that a key has hit its cap.
+//
+// `provider`/`model` are what actually served the call; `requested_provider` is
+// what was asked for. When they differ, the fallback cascade fired.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS llm_usage (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id          TEXT NOT NULL DEFAULT '',
+    purpose            TEXT NOT NULL DEFAULT '',   -- 'pitch' | 'content' | 'syndication' | ...
+    requested_provider TEXT NOT NULL DEFAULT '',
+    provider           TEXT NOT NULL DEFAULT '',
+    model              TEXT NOT NULL DEFAULT '',
+    tokens_in          INTEGER NOT NULL DEFAULT 0,
+    tokens_out         INTEGER NOT NULL DEFAULT 0,
+    cost_gbp           REAL    NOT NULL DEFAULT 0,
+    latency_ms         INTEGER NOT NULL DEFAULT 0,
+    ok                 INTEGER NOT NULL DEFAULT 1,
+    error              TEXT NOT NULL DEFAULT '',
+    created_at         INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage(created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_llm_usage_client  ON llm_usage(client_id, created_at DESC);
+`)
+
 export default db
