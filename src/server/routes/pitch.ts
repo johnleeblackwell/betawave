@@ -111,10 +111,11 @@ the message text here, on its own lines
 
   const prompt = `Write the message for this person.\n\n${lines.join('\n')}`
 
-  // Line-delimited rather than JSON on purpose: the Big Pickle fallback model
-  // returns an EMPTY string when asked for strict JSON (verified — a plain
-  // prompt works, the same prompt asking for JSON returns ""). This format
-  // survives every model we've tried.
+  // Line-delimited rather than JSON on purpose: weaker fallback models have
+  // returned an EMPTY string when asked for strict JSON (verified against the
+  // old opencode-zen fallback — a plain prompt worked, the same prompt asking
+  // for JSON returned ""). Kept because it survives every model we've tried,
+  // including whatever a self-hoster configures.
   const parseReply = (raw: string) => {
     const grab = (label: string) => {
       const m = raw.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'))

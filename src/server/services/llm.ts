@@ -18,6 +18,13 @@
  *   - openai     (gpt-4o-mini default — ~£0.15/M tokens, US-hosted)
  *
  * If a client hasn't configured anything, falls back to env defaults.
+ *
+ * ⚠️ CHOOSING A PROVIDER IS A DATA-PROTECTION DECISION, NOT JUST A COST ONE.
+ * Some calls carry third-party personal data (the pitch drafter sends prospect
+ * names, headlines and their own post text). For those, only use providers you
+ * can name in a privacy policy, contract with as a processor, and that do not
+ * train on input. Anything free is usually paid for in data. See the `zen`
+ * entry below for a worked example of what not to use.
  */
 
 import db from '../db.js'
@@ -61,7 +68,13 @@ const COST_PER_M: Record<LLMProvider, [number, number]> = {
   qwen:      [0.30, 0.40],     // 2.5 72B via OpenRouter
   openai:    [0.12, 0.50],     // gpt-4o-mini
   ollama:    [0.00, 0.00],     // local
-  zen:       [0.00, 0.00],     // opencode Big Pickle — free during stealth
+  // ⚠️ opencode zen "Big Pickle" — FREE BUT TRAINS ON YOUR INPUT. Their docs:
+  // "collected data may be used to improve the model", and the sibling free
+  // model warns "Do not submit personal or confidential data". Removed from the
+  // automatic fallback cascade 2026-07-22. Still selectable for a self-hoster
+  // who explicitly wants it on their OWN content — never for anything carrying
+  // third-party personal data (pitch, enrich, outreach).
+  zen:       [0.00, 0.00],
   custom:    [0.00, 0.00],     // user-supplied — cost unknown
 }
 
@@ -113,8 +126,7 @@ function providerEnvKey(p: LLMProvider): string {
 
 /** True when Anthropic is temporarily unusable — either overloaded (529) or the
  *  configured key has hit its usage/quota limit (400 invalid_request_error).
- *  Either way, the right move is the same: fall back to Big Pickle rather than
- *  fail outright. */
+ *  Either way the right move is the same: try the fallback rather than fail. */
 function isAnthropicUnavailable(e: any): boolean {
   if (e?.status === 529 || e?.status === 400) {
     const msg: string = e?.message || ''
@@ -200,29 +212,32 @@ async function generateInner(client: ClientLLMConfig | null, opts: GenerateOpts)
         cost_gbp: (ti * COST_PER_M.anthropic[0] + to * COST_PER_M.anthropic[1]) / 1_000_000,
       }
     } catch (e: any) {
-      const zenKey = process.env.OPENCODE_ZEN_API_KEY
-      if (isAnthropicUnavailable(e) && zenKey) {
-        console.warn(`[llm] Anthropic unavailable (${e?.status}) — falling back to Big Pickle (opencode zen): ${e?.message || ''}`)
-        const zenResult = await generateOpenAICompat({
-          provider: 'zen',
-          model: DEFAULT_MODEL.zen,
-          apiKey: zenKey,
-          baseURL: DEFAULT_BASE_URL.zen,
+      // Fallback is OpenAI only, and deliberately so. opencode zen's free
+      // "Big Pickle" was removed from this cascade on 2026-07-22: it is a
+      // *stealth* model (the operator does not disclose which lab or model it
+      // is) whose own docs state "collected data may be used to improve the
+      // model". You cannot name an anonymous sub-processor in a privacy policy,
+      // cannot sign a processor contract with a codename, and cannot honour an
+      // erasure request against training data. This path carries third-party
+      // personal data — prospect names, headlines, About text — so a
+      // trains-on-input provider is not an acceptable fallback at any price.
+      // Do not re-add it here. See STATE.md.
+      const openaiKey = process.env.OPENAI_API_KEY
+      if (isAnthropicUnavailable(e) && openaiKey) {
+        console.warn(`[llm] Anthropic unavailable (${e?.status}) — falling back to OpenAI: ${e?.message || ''}`)
+        const fallback = await generateOpenAICompat({
+          provider: 'openai',
+          model: DEFAULT_MODEL.openai,
+          apiKey: openaiKey,
+          baseURL: DEFAULT_BASE_URL.openai,
         }, opts, max_tokens, temperature)
 
-        // Big Pickle intermittently returns an empty string with a 200 — no
-        // error to catch, just nothing. Callers then render a blank draft or a
-        // confusing 502. Cascade to OpenAI rather than handing back silence.
-        if (!zenResult.text?.trim() && process.env.OPENAI_API_KEY) {
-          console.warn('[llm] Big Pickle returned an empty response — cascading to OpenAI')
-          return generateOpenAICompat({
-            provider: 'openai',
-            model: DEFAULT_MODEL.openai,
-            apiKey: process.env.OPENAI_API_KEY,
-            baseURL: DEFAULT_BASE_URL.openai,
-          }, opts, max_tokens, temperature)
+        // Never hand back a silent blank — that renders as an empty draft and
+        // looks like a bug in the caller rather than a provider failure.
+        if (!fallback.text?.trim()) {
+          throw new Error('Anthropic unavailable and the OpenAI fallback returned an empty response')
         }
-        return zenResult
+        return fallback
       }
       throw e
     }
