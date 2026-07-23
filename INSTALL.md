@@ -8,6 +8,20 @@
 - 1 GB RAM minimum, 2 GB recommended
 - At least one LLM API key (or a local model — see below)
 
+### System libraries for Snapshots (Linux, Node path)
+
+The **Snapshots** module renders PDF reports with headless Chromium (via Puppeteer). On a fresh Linux server Chromium won't launch until its shared libraries are installed — you'll see `error while loading shared libraries: libnss3.so`. Install them once:
+
+```bash
+# Debian / Ubuntu
+sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+  libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 libcups2t64 libdrm2 \
+  libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+  libpango-1.0-0 libcairo2 libasound2t64 libatspi2.0-0t64 fonts-liberation
+```
+
+(On Ubuntu 22.04 and earlier, drop the `t64` suffixes — e.g. `libasound2`, `libatk1.0-0`.) The **Docker** path bundles these already; you only need this for a bare-metal / VPS Node install. Everything except Snapshots works without them.
+
 ## Quick start (Node)
 
 ```bash
