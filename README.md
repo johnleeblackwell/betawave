@@ -4,11 +4,11 @@
 [![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)](https://nodejs.org)
 [![SQLite](https://img.shields.io/badge/Database-SQLite-lightgrey)](https://sqlite.org)
 
-**βWave** is a self-hosted marketing engine for small businesses and creators — content generation, social syndication, AI citation tracking, and growth automation in one place.
+**βWave** is the marketing engine a small business runs *instead of* paying an agency or stacking up a dozen SaaS subscriptions. It writes and publishes your content, finds and messages the right prospects one at a time (never spam), handles the replies, and tracks whether AI assistants actually recommend you — all on your own server, with your own API keys.
 
-Install it on your own server. Bring your own API keys. Pay nothing per month. Or have someone run it for you.
+Install it yourself and it costs nothing per month. Bring your own keys, own your data, run it forever. Or have someone run it for you.
 
-> **βWave β Free** — own your stack, own your data, own your growth.
+> **βWave β Free** — own your stack, own your data, own your growth. Everything that reaches a real person is human-gated: βWave does the grunt work, you keep the judgement.
 
 ---
 
@@ -94,9 +94,22 @@ cd betawave
 
 ---
 
-## Done-For-You
+## Project status
 
-Don't want to run it yourself? **[betawave.co.uk](https://betawave.co.uk)** — fully managed, white-glove setup, your data stays yours.
+βWave is young and moving fast. It runs in production every day — it's what the maintainer uses to run real businesses — but modules mature at different rates: Content, Syndicate, Snapshots and Citations are the most battle-tested; some platform integrations are newer. If something's rough, [open an issue](https://github.com/johnleeblackwell/betawave/issues) — you'll be talking to the person who wrote it. Stars and PRs are the fuel that keeps it open and free.
+
+---
+
+## Who builds βWave
+
+βWave is built by John Blackwell, who has spent 20+ years in search — building websites in the late '90s, technical SEO through the 2000s, and now generative / AI search. The through-line is the same across every generation of the channel: helping businesses get found.
+
+Self-hosting is **free forever** and always will be. Two commercial options exist for people who'd rather buy time than spend it:
+
+- **Being cited by AI** — the Citation Tracker is the visible tip of a bigger discipline: engineering a brand into the answers ChatGPT, Perplexity, Claude and Google's AI give. If you want that done properly, that's **[geo.bz](https://geo.bz)**.
+- **Done-for-you βWave** — don't want to self-host? **[betawave.co.uk](https://betawave.co.uk)** sets it up and runs it for you, your data staying yours throughout.
+
+Neither is a catch. The software is complete on its own — the paid options are just the two things software can't do for you: expertise, and time.
 
 ---
 
