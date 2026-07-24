@@ -318,7 +318,7 @@ function BetaWaveWordmark() {
       viewBox="0 0 72 72"
       xmlns="http://www.w3.org/2000/svg"
       role="img"
-      aria-label="βWave"
+      aria-label="βWave™"
       style={{ width: 72, height: 72, flexShrink: 0 }}
     >
       <defs>

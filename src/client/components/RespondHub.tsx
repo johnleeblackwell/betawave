@@ -171,7 +171,7 @@ export default function RespondHub({ clientId }: { clientId: string }) {
 
   const decideSuggestion = async (id: string, action: 'approve' | 'reject') => {
     await fetch(`/api/clients/${clientId}/respond/suggestions/${id}/${action}`, { method: 'POST' })
-    showToast(action === 'approve' ? 'Approved — βWave will action it (paced, within daily caps)' : 'Rejected')
+    showToast(action === 'approve' ? 'Approved — βWave™ will action it (paced, within daily caps)' : 'Rejected')
     setSuggestions(s => s.filter(x => x.id !== id))
   }
 

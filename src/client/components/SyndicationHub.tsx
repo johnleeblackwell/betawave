@@ -750,7 +750,7 @@ function DestinationFields({ form, onChange, editMode }: { form: DestForm; onCha
               <>1. Your Instagram must be a <strong>Business/Creator account linked to a Facebook Page</strong>.<br />
               2. Use the same Meta app + long-lived Page token (needs <code>instagram_content_publish</code>).<br />
               3. IG user ID: Graph Explorer → <code>me/accounts?fields=instagram_business_account</code>.<br />
-              ⚠️ Instagram posts <strong>require an image</strong> — βWave auto-sources one per post if the article has none.</>
+              ⚠️ Instagram posts <strong>require an image</strong> — βWave™ auto-sources one per post if the article has none.</>
             )}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>

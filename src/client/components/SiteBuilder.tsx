@@ -427,7 +427,7 @@ export default function SiteBuilder({ clientId, client, operator = false }: Prop
               {!site.netlify_site_id ? (
                 <>
                   <p style={{ color: '#64748b', fontSize: '0.85rem', margin: 0 }}>
-                    Recommended, done-for-you route: βWave hosts a fast static site for this client
+                    Recommended, done-for-you route: βWave™ hosts a fast static site for this client
                     on Netlify. Pick a subdomain to start — the custom domain above gets pointed at
                     it once it's live.
                   </p>

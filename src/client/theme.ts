@@ -50,7 +50,7 @@ function env(key: string, fallback: string): string {
 
 export const theme: Theme = {
   // ── Identity ────────────────────────────────────────────────────────────────
-  brandName:    env('VITE_BRAND_NAME',    'βWave'),
+  brandName:    env('VITE_BRAND_NAME',    'βWave™'),
   brandTagline: env('VITE_BRAND_TAGLINE', 'The Business Operation Layer.'),
   logoUrl:      env('VITE_BRAND_LOGO_URL', '') || null,
 

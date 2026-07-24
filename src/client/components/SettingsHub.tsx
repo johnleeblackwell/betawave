@@ -55,7 +55,7 @@ export default function SettingsHub() {
       <div className="page-header" style={{ paddingLeft: 0 }}>
         <div>
           <div className="page-title">Settings · API keys</div>
-          <div className="page-subtitle">Bring your own keys — βWave uses these and you pay the provider directly. Stored encrypted; takes effect immediately.</div>
+          <div className="page-subtitle">Bring your own keys — βWave™ uses these and you pay the provider directly. Stored encrypted; takes effect immediately.</div>
         </div>
       </div>
 

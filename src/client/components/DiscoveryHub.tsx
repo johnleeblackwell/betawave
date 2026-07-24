@@ -882,7 +882,7 @@ function ContextMagnetBanner({ contact }: { contact: Contact }) {
     return (
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94a3b8)', margin: '4px 0 10px', padding: '8px 10px', border: '1px dashed var(--border, #334155)', borderRadius: 8 }}>
         🧲 <strong>Contact Magnetism</strong> grounds this message in something real the person actually said or did,
-        instead of a template. It needs the βWave capture extension, which isn't a download —{' '}
+        instead of a template. It needs the βWave™ capture extension, which isn't a download —{' '}
         <a href="https://betawave.co.uk" target="_blank" rel="noopener noreferrer">ask for it</a> and you'll be talked through it.
         Until then, this draft is written from their name, role and company only.
       </div>
@@ -1002,7 +1002,7 @@ function OutreachCell({ clientId, contact, onUpdated }: { clientId: string; cont
           <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <h3 style={{ marginTop: 0 }}>Message {contact.full_name}</h3>
             <p className="text-muted" style={{ fontSize: '0.85rem', marginTop: -8 }}>
-              Draft it, copy it, open their profile, paste and send yourself — βWave never sends LinkedIn messages automatically.
+              Draft it, copy it, open their profile, paste and send yourself — βWave™ never sends LinkedIn messages automatically.
             </p>
             <ContextMagnetBanner contact={contact} />
             <textarea className="form-input" rows={6} value={draft} onChange={e => setDraft(e.target.value)}

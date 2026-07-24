@@ -204,7 +204,7 @@ export default function ClientForm({ client, onSave, onCancel }: Props) {
             {step === 'mission' && (
               <>
                 <div style={{ background: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: '0.85rem', color: '#475569' }}>
-                  These fields drive every AI action βWave takes on this client's behalf — content prompts, citation queries, diagnostic narratives, outbound emails. Optional but worth filling in once.
+                  These fields drive every AI action βWave™ takes on this client's behalf — content prompts, citation queries, diagnostic narratives, outbound emails. Optional but worth filling in once.
                 </div>
 
                 <FormField label="Mission" hint="One sentence: what is this business trying to achieve?">

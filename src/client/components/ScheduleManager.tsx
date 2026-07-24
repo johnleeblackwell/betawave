@@ -310,7 +310,7 @@ export default function ScheduleManager({ clientId, client }: Props) {
         <div>
           <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#374151' }}>Content Schedules</div>
           <div style={{ fontSize: '0.8rem', color: '#64748b', marginTop: 2 }}>
-            βWave generates and publishes content automatically on your chosen schedule.
+            βWave™ generates and publishes content automatically on your chosen schedule.
           </div>
         </div>
         {!showForm && !editingId && (
@@ -341,7 +341,7 @@ export default function ScheduleManager({ clientId, client }: Props) {
         <div className="empty-state">
           <div className="empty-state-icon">🗓️</div>
           <div className="empty-state-title">No schedules yet</div>
-          <p>Set up a schedule and βWave will generate content automatically.</p>
+          <p>Set up a schedule and βWave™ will generate content automatically.</p>
           <button className="btn btn-primary mt-16" onClick={() => setShowForm(true)}>
             + Add First Schedule
           </button>
