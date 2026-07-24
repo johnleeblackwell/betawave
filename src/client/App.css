@@ -30,6 +30,21 @@
   /* Background wash gradient — adapts per theme */
   --bg-wash-1: rgba(99,102,241,0.06);
   --bg-wash-2: rgba(139,92,246,0.04);
+
+  /* Module accents (theme-independent — same in dark + light). These MUST live
+     in base :root, not just the light block: the module dots, tab-group pills,
+     and crumb colours all read them, and in dark mode they were resolving to
+     empty (→ transparent) because the only declarations sat inside
+     :root[data-theme="light"]. The light block re-declares identical values, so
+     light is unchanged. */
+  --produce:        #f59e0b;
+  --produce-glow:   rgba(245,158,11,0.12);
+  --reach:          #3b82f6;
+  --reach-glow:     rgba(59,130,246,0.12);
+  --respond:        #8b5cf6;
+  --respond-glow:   rgba(139,92,246,0.12);
+  --measure:        #10b981;
+  --measure-glow:   rgba(16,185,129,0.12);
 }
 
 /* ═══ LIGHT THEME OVERRIDES ═══════════════════════════════════════════════
