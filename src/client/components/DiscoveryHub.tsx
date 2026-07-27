@@ -76,6 +76,7 @@ interface Prospect {
 
 type View =
   | { type: 'home' }
+  | { type: 'today' }
   | { type: 'settings' }
   | { type: 'vertical'; verticalId: string; tab: 'orgs' | 'contacts' | 'prospects' }
   | { type: 'org'; orgId: string; verticalId: string }
@@ -94,7 +95,11 @@ export default function DiscoveryHub({ clientId }: { clientId: string }) {
   if (view.type === 'home') {
     return <HomeView clientId={clientId} verticals={verticals} reload={loadVerticals}
       onSelectVertical={vid => setView({ type: 'vertical', verticalId: vid, tab: 'orgs' })}
+      onOpenToday={() => setView({ type: 'today' })}
       onOpenSettings={() => setView({ type: 'settings' })} />
+  }
+  if (view.type === 'today') {
+    return <TodayView clientId={clientId} onBack={() => setView({ type: 'home' })} />
   }
   if (view.type === 'settings') {
     return <SettingsView clientId={clientId} onBack={() => setView({ type: 'home' })} />
@@ -113,11 +118,12 @@ export default function DiscoveryHub({ clientId }: { clientId: string }) {
 }
 
 // ─── Home view ──────────────────────────────────────────────────────────────
-function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenSettings }: {
+function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenToday, onOpenSettings }: {
   clientId: string
   verticals: Vertical[]
   reload: () => void
   onSelectVertical: (id: string) => void
+  onOpenToday: () => void
   onOpenSettings: () => void
 }) {
   const { showToast } = useToast()
@@ -149,7 +155,8 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenSetting
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-ghost btn-sm" onClick={onOpenSettings}>⚙️ Settings</button>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowTemplates(!showTemplates)}>📦 Templates</button>
-          <button className="btn btn-primary btn-sm" onClick={() => setShowAddVertical(!showAddVertical)}>+ Add vertical</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowAddVertical(!showAddVertical)}>+ Add vertical</button>
+          <button className="btn btn-primary btn-sm" onClick={onOpenToday}>▶ Today's outreach</button>
         </div>
       </div>
 
@@ -1277,6 +1284,149 @@ function AddContactForm({ clientId, orgId, onSaved, onCancel }: { clientId: stri
         <button className="btn btn-primary btn-sm" onClick={submit} disabled={saving || !form.full_name.trim()}>Save</button>
         <button className="btn btn-ghost btn-sm" onClick={onCancel}>Cancel</button>
       </div>
+    </div>
+  )
+}
+
+// ─── Today's outreach queue ─────────────────────────────────────────────────
+// The surface you open each morning. Serves the highest-priority uncontacted
+// leads split by the channel that can actually reach them, and tracks progress
+// against the daily cap — going over gets the LinkedIn account restricted,
+// which ends a campaign rather than slowing it.
+//
+// Status is written back from the capture extension ON LinkedIn (see
+// /api/leads/mark-contacted), not here — asking someone to come back and tick a
+// box is the step everyone skips. This view just re-reads on focus, so
+// returning from a LinkedIn tab shows the list already shortened.
+
+interface QueueRow {
+  id: string
+  full_name: string
+  role: string
+  company: string
+  linkedin_url: string
+  priority_score: number
+}
+interface TodayQueue {
+  caps: { connects: number; inmails: number }
+  sent_today: { connect: number; inmail: number; total: number }
+  remaining_in_list: number
+  inmail: QueueRow[]
+  connect: QueueRow[]
+}
+
+function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void }) {
+  const [q, setQ] = useState<TodayQueue | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/leads/today?clientId=${clientId}`)
+    if (res.ok) setQ(await res.json())
+    setLoading(false)
+  }, [clientId])
+
+  useEffect(() => { load() }, [load])
+  // Re-read when the tab regains focus — you've just come back from LinkedIn.
+  useEffect(() => {
+    const onFocus = () => load()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [load])
+
+  const Row = ({ r, tier }: { r: QueueRow; tier?: string }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+      borderBottom: '1px solid var(--border-subtle)',
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+          {r.full_name}
+          {tier && <span className="badge" style={{ marginLeft: 8, fontSize: '0.65rem' }}>{tier}</span>}
+        </div>
+        <div className="text-muted" style={{ fontSize: '0.78rem' }}>
+          {r.role}{r.company && r.company !== 'Unknown company' ? ` · ${r.company}` : ''}
+        </div>
+      </div>
+      <span className="text-muted" style={{ fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{r.priority_score}</span>
+      <a className="btn btn-secondary btn-sm" href={r.linkedin_url} target="_blank" rel="noreferrer">Open ↗</a>
+    </div>
+  )
+
+  if (loading) return <div className="page-content"><span className="loading" /> Loading today's queue…</div>
+
+  const done = q ? q.sent_today.total : 0
+  const target = q ? q.caps.connects + q.caps.inmails : 0
+
+  return (
+    <div className="page-content">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div>
+          <button className="btn btn-ghost btn-sm" onClick={onBack}>← Discovery</button>
+          <h2 style={{ margin: '8px 0 0' }}>▶ Today's outreach</h2>
+          <div className="text-muted" style={{ fontSize: '0.85rem', marginTop: 4 }}>
+            {q?.remaining_in_list ?? 0} uncontacted left in the list
+          </div>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={load}>↻ Refresh</button>
+      </div>
+
+      {/* Progress against the daily cap */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body" style={{ display: 'flex', gap: 24, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '1.6rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+              {done} <span className="text-muted" style={{ fontSize: '1rem', fontWeight: 400 }}>/ {target}</span>
+            </div>
+            <div className="text-muted" style={{ fontSize: '0.78rem' }}>sent today</div>
+          </div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ height: 8, background: 'var(--bg-hover)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                width: `${target ? Math.min(100, (done / target) * 100) : 0}%`, height: '100%',
+                background: 'linear-gradient(90deg,#22D3EE,#3B82F6)', transition: 'width .3s',
+              }} />
+            </div>
+            <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6 }}>
+              {q?.sent_today.connect ?? 0} connects · {q?.sent_today.inmail ?? 0} InMail
+              {done >= target && target > 0 && ' — cap reached, stop here'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* InMail tier — senior roles that rarely accept a cold connect */}
+      {!!q?.inmail.length && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <span className="card-title">🎯 InMail — {q.inmail.length}</span>
+            <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+              senior roles · no connection needed · a reply refunds the credit
+            </span>
+          </div>
+          <div>{q.inmail.map(r => <Row key={r.id} r={r} />)}</div>
+        </div>
+      )}
+
+      {/* Connect tier — first few get a written note, the rest go plain */}
+      {!!q?.connect.length && (
+        <div className="card">
+          <div className="card-header">
+            <span className="card-title">🤝 Connect — {q.connect.length}</span>
+            <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+              top 5 with a note (⚡ Draft pitch → ↻ As connect note) · rest plain
+            </span>
+          </div>
+          <div>{q.connect.map((r, i) => <Row key={r.id} r={r} tier={i < 5 ? 'note' : undefined} />)}</div>
+        </div>
+      )}
+
+      {!q?.inmail.length && !q?.connect.length && (
+        <div className="empty-state">
+          <div className="empty-state-icon">✅</div>
+          <div className="empty-state-title">Nothing left to send</div>
+          <p>Either today's list is done, or every lead in this client has been contacted.</p>
+        </div>
+      )}
     </div>
   )
 }
