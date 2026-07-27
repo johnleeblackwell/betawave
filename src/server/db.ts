@@ -1573,4 +1573,17 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_llm_usage_client  ON llm_usage(client_id, created_at DESC);
 `)
 
+// Migration: how a contact was reached, not just that they were. A flat
+// 'messaged' can't distinguish a blank connection request from a written
+// InMail — and the follow-up differs (a connect needs a pitch once accepted;
+// an InMail has already been pitched). Blank on rows predating this.
+// Required by /api/leads/mark-contacted and /api/leads/today.
+const existingContactCols = (db.prepare('PRAGMA table_info(dl_contacts)').all() as any[]).map(c => c.name)
+if (!existingContactCols.includes('outreach_channel')) {
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN outreach_channel TEXT DEFAULT ''`)
+}
+// Indexed because the Today queue filters on these on every load.
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_outreach ON dl_contacts(outreach_status, outreach_sent_at)`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_linkedin ON dl_contacts(linkedin_url)`)
+
 export default db
