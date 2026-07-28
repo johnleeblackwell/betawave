@@ -637,6 +637,8 @@ if (!existingCols.includes('wp_url')) {
 }
 if (!existingCols.includes('image_source')) {
   db.exec(`ALTER TABLE clients ADD COLUMN image_source TEXT DEFAULT 'auto'`)
+}
+if (!existingCols.includes('image_keywords')) {
   db.exec(`ALTER TABLE clients ADD COLUMN image_keywords TEXT DEFAULT ''`)
 }
 if (!existingCols.includes('location')) {
