@@ -1571,7 +1571,28 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage(created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_llm_usage_client  ON llm_usage(client_id, created_at DESC);
+
+  -- In-app agent approval gate: when the agent wants to take an ACTION (write),
+  -- the loop pauses and the pending action + full conversation state are parked
+  -- here until the owner approves or rejects in the chat UI. Consumed once, then
+  -- deleted; a TTL sweep clears anything abandoned. Nothing acts from this table
+  -- on its own — it's just the paused state between propose and approve.
+  CREATE TABLE IF NOT EXISTS agent_pending_actions (
+    id          TEXT PRIMARY KEY,
+    payload     TEXT NOT NULL,                      -- JSON: { convo, readResults, actions }
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
 `)
+
+// Migration: link a usage row to the specific piece of content it produced, so
+// the Content list can show what each piece actually cost in tokens. Blank for
+// usage that isn't tied to one generated piece (e.g. the pitch drafter, or the
+// in-app agent's non-content actions).
+const existingLlmUsageCols = (db.prepare('PRAGMA table_info(llm_usage)').all() as any[]).map(c => c.name)
+if (!existingLlmUsageCols.includes('content_id')) {
+  db.exec(`ALTER TABLE llm_usage ADD COLUMN content_id TEXT DEFAULT ''`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_llm_usage_content ON llm_usage(content_id)`)
+}
 
 // Migration: how a contact was reached, not just that they were. A flat
 // 'messaged' can't distinguish a blank connection request from a written

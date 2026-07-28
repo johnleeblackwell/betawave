@@ -4,6 +4,7 @@ import ClientView from './components/ClientView.tsx'
 import ClientForm from './components/ClientForm.tsx'
 import AffiliatesHub from './components/AffiliatesHub.tsx'
 import SettingsHub from './components/SettingsHub.tsx'
+import AgentChat from './components/AgentChat.tsx'
 import ThemeProvider, { useTheme } from './ThemeProvider.tsx'
 
 // --- Types ---
@@ -296,6 +297,10 @@ function AppInner() {
           )}
         </main>
       </div>
+
+      {/* In-app assistant — owner-only (it can see every client's data, and can
+          act, with every action gated behind your approval). */}
+      {me?.role === 'owner' && <AgentChat />}
 
       {/* Toasts */}
       <div className="toast-container">

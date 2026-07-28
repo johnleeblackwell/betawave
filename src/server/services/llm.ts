@@ -50,6 +50,10 @@ export interface GenerateOpts {
   temperature?: number
   /** Free-text label for the usage ledger, e.g. 'pitch', 'content', 'syndication'. */
   purpose?: string
+  /** Links the usage row to the specific `content` row it produced, so its cost
+   *  can be shown against that piece in the Content list. Omit when the call
+   *  isn't producing one specific saved piece (e.g. the pitch drafter). */
+  contentId?: string
 }
 
 export interface GenerateResult {
@@ -151,9 +155,52 @@ function acceptsSampling(model: string): boolean {
 const recordUsage = db.prepare(`
   INSERT INTO llm_usage
     (client_id, purpose, requested_provider, provider, model,
-     tokens_in, tokens_out, cost_gbp, latency_ms, ok, error)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     tokens_in, tokens_out, cost_gbp, latency_ms, ok, error, content_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
+
+/** GBP cost estimate for a provider's per-token pricing. Exported so callers
+ *  that generate OUTSIDE `generate()` (streaming routes, the agent) can price
+ *  their own token counts consistently with the rest of the ledger. */
+export function estimateCostGbp(provider: LLMProvider, tokensIn: number, tokensOut: number): number {
+  const [pIn, pOut] = COST_PER_M[provider] ?? COST_PER_M.custom
+  return (tokensIn * pIn + tokensOut * pOut) / 1_000_000
+}
+
+export interface LogUsageInput {
+  clientId?: string
+  purpose: string
+  provider: LLMProvider
+  model: string
+  tokensIn: number
+  tokensOut: number
+  latencyMs?: number
+  /** Links this usage row to the `content` row it produced — see GenerateOpts.contentId. */
+  contentId?: string
+  ok?: boolean
+  error?: string
+}
+
+/** Write one ledger row and return its estimated cost in GBP. For generation
+ *  paths that don't go through `generate()` below (the streaming SSE routes,
+ *  the in-app agent) — same ledger, same cost math, so every generated piece
+ *  of content is accounted for the same way regardless of which code path
+ *  produced it. Best-effort: a bookkeeping failure never takes down the
+ *  generation that already succeeded. */
+export function logUsage(input: LogUsageInput): number {
+  const ok = input.ok !== false
+  const cost = ok ? estimateCostGbp(input.provider, input.tokensIn, input.tokensOut) : 0
+  try {
+    recordUsage.run(
+      input.clientId || '', input.purpose, input.provider, input.provider, input.model,
+      input.tokensIn, input.tokensOut, cost, input.latencyMs || 0, ok ? 1 : 0, input.error || '',
+      input.contentId || '',
+    )
+  } catch (logErr: any) {
+    console.warn('[llm] usage ledger write failed:', logErr?.message || logErr)
+  }
+  return cost
+}
 
 /**
  * One-shot completion. Returns text + token usage + estimated GBP cost, and
@@ -168,22 +215,18 @@ export async function generate(client: ClientLLMConfig | null, opts: GenerateOpt
   const requested = resolveProvider(client).provider
   try {
     const result = await generateInner(client, opts)
-    try {
-      recordUsage.run(
-        client?.id || '', opts.purpose || '', requested, result.provider, result.model,
-        result.tokens_in, result.tokens_out, result.cost_gbp, Date.now() - started, 1, '',
-      )
-    } catch (logErr: any) {
-      console.warn('[llm] usage ledger write failed:', logErr?.message || logErr)
-    }
+    logUsage({
+      clientId: client?.id, purpose: opts.purpose || '', provider: result.provider, model: result.model,
+      tokensIn: result.tokens_in, tokensOut: result.tokens_out, latencyMs: Date.now() - started,
+      contentId: opts.contentId, ok: true,
+    })
     return result
   } catch (e: any) {
-    try {
-      recordUsage.run(
-        client?.id || '', opts.purpose || '', requested, '', '',
-        0, 0, 0, Date.now() - started, 0, String(e?.message || e).slice(0, 500),
-      )
-    } catch { /* ignore — the original error matters more */ }
+    logUsage({
+      clientId: client?.id, purpose: opts.purpose || '', provider: requested, model: '',
+      tokensIn: 0, tokensOut: 0, latencyMs: Date.now() - started,
+      contentId: opts.contentId, ok: false, error: String(e?.message || e).slice(0, 500),
+    })
     throw e
   }
 }

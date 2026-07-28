@@ -37,6 +37,7 @@ import { startJobRunner } from './services/job-runner.js'
 import { authMiddleware, loginHandler, logoutHandler, meHandler } from './middleware/auth.js'
 import { upsertUser } from './services/users.js'
 import { settingsRouter } from './routes/settings.js'
+import agentRouter from './routes/agent.js'
 import { loadKeysIntoEnv } from './services/secrets.js'
 import { telegramRouter } from './routes/telegram.js'
 import { pseoRouter } from './routes/pseo.js'
@@ -92,6 +93,8 @@ app.use('/api/clients/:clientId/citation-tracker', citationClientRouter)
 app.use('/api/citation-tracker', citationBrandRouter)
 // Instance settings — BYO API keys (owner-only)
 app.use('/api/settings', settingsRouter)
+// In-app assistant — owner-only, reads live instance data, gated actions
+app.use('/api/agent', agentRouter)
 // Respond — client-level summary/inbox and global account/comment/conversation management
 app.use('/api/clients/:clientId/respond', clientRespondRouter)
 app.use('/api/clients/:clientId/telegram', telegramRouter)

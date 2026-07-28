@@ -7,12 +7,14 @@ export function getClient(apiKey?: string) {
   return new Anthropic({ apiKey: apiKey ?? process.env.ANTHROPIC_API_KEY })
 }
 
+export const STREAM_MODEL = 'claude-opus-4-6'
+
 // Returns an async iterable that yields text chunks, with an abort controller attached
 export function streamGenerate(prompt: string) {
   const controller = new AbortController()
 
   const stream = getClient().messages.stream({
-    model: 'claude-opus-4-6',
+    model: STREAM_MODEL,
     max_tokens: 2048,
     thinking: { type: 'adaptive' } as any,
     messages: [{ role: 'user', content: prompt }]
@@ -33,11 +35,20 @@ export function streamGenerate(prompt: string) {
 
   const iterable = iterate()
   ;(iterable as any).controller = controller
+  ;(iterable as any).model = STREAM_MODEL
+  // Token usage isn't in the delta events — it's only on the SDK's own final
+  // message. Call this AFTER fully draining the iterable (it resolves instantly
+  // then, since the underlying stream has already finished) to log real cost.
+  ;(iterable as any).finalMessage = () => stream.finalMessage()
 
   // Wire abort to the SDK stream
   controller.signal.addEventListener('abort', () => stream.abort())
 
-  return iterable as AsyncGenerator<string> & { controller: AbortController }
+  return iterable as AsyncGenerator<string> & {
+    controller: AbortController
+    model: string
+    finalMessage: () => Promise<{ usage: { input_tokens: number; output_tokens: number } }>
+  }
 }
 
 // --- Prompt builders ---
