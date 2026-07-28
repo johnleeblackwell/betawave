@@ -105,6 +105,7 @@ function RoutesTab({ clientId, routes, sources, destinations, onChange }: {
   const runNow = async (routeId: string) => {
     const res = await fetch(`/api/clients/${clientId}/syndication/routes/${routeId}/run-now`, { method: 'POST' })
     const data = await res.json()
+    if (!res.ok) { showToast(data.error || 'Run failed', 'error'); return }
     showToast(`Tick complete: posted ${data.posted}, failed ${data.failed}, skipped ${data.skipped}`)
     onChange()
   }
