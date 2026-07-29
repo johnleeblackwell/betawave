@@ -50,6 +50,16 @@ export interface GenerateOpts {
   temperature?: number
   /** Free-text label for the usage ledger, e.g. 'pitch', 'content', 'syndication'. */
   purpose?: string
+  /** Override the client's configured model for THIS call only.
+   *
+   *  Exists so one high-value, low-volume job can use a stronger (pricier)
+   *  model without dragging every other call for that client onto it — the
+   *  client-level setting applies to unattended jobs too (the syndication
+   *  scheduler, respond drafts), several of which are tuned around tight
+   *  max_tokens budgets that a reasoning model would blow straight through.
+   *  Provider/key/baseURL still come from the client, so this only makes
+   *  sense for a model the configured provider actually serves. */
+  model?: string
   /** Links the usage row to the specific `content` row it produced, so its cost
    *  can be shown against that piece in the Content list. Omit when the call
    *  isn't producing one specific saved piece (e.g. the pitch drafter). */
@@ -102,7 +112,7 @@ const DEFAULT_BASE_URL: Record<LLMProvider, string> = {
   custom:    process.env.CUSTOM_LLM_BASE_URL || '',
 }
 
-function resolveProvider(client: ClientLLMConfig | null | undefined): {
+function resolveProvider(client: ClientLLMConfig | null | undefined, modelOverride?: string): {
   provider: LLMProvider
   model: string
   apiKey: string
@@ -110,7 +120,7 @@ function resolveProvider(client: ClientLLMConfig | null | undefined): {
 } {
   const provider = ((client?.llm_content_provider || process.env.LLM_CONTENT_PROVIDER || 'anthropic')
                     .toLowerCase() as LLMProvider)
-  const model    = client?.llm_content_model    || process.env.LLM_CONTENT_MODEL    || DEFAULT_MODEL[provider]
+  const model    = modelOverride || client?.llm_content_model || process.env.LLM_CONTENT_MODEL || DEFAULT_MODEL[provider]
   const baseURL  = client?.llm_content_base_url || process.env.LLM_CONTENT_BASE_URL || DEFAULT_BASE_URL[provider]
   const apiKey   = client?.llm_content_api_key  || providerEnvKey(provider)         || ''
   return { provider, model, apiKey, baseURL }
@@ -232,7 +242,7 @@ export async function generate(client: ClientLLMConfig | null, opts: GenerateOpt
 }
 
 async function generateInner(client: ClientLLMConfig | null, opts: GenerateOpts): Promise<GenerateResult> {
-  const { provider, model, apiKey, baseURL } = resolveProvider(client)
+  const { provider, model, apiKey, baseURL } = resolveProvider(client, opts.model)
   const max_tokens = opts.max_tokens ?? 2000
   const temperature = opts.temperature ?? 0.7
 
