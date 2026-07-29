@@ -73,14 +73,20 @@ export interface GenerateResult {
   provider: LLMProvider
   model: string
   cost_gbp: number
+  cost_usd: number
 }
 
-// Cost per million tokens (input, output) in GBP. Approximate Q3 2026.
-const COST_PER_M: Record<LLMProvider, [number, number]> = {
-  anthropic: [3.95, 19.75],    // Opus 4.8 — $5/$25 per M tokens at ~0.79 USD→GBP
-  deepseek:  [0.12, 0.18],     // V3
-  qwen:      [0.30, 0.40],     // 2.5 72B via OpenRouter
-  openai:    [0.12, 0.50],     // gpt-4o-mini
+export const USD_TO_GBP = 0.79
+
+/** Published list price in USD per 1M tokens, [input, output]. Kept in USD
+ *  because that's how the providers quote it — converting once, here, beats
+ *  maintaining pre-converted numbers nobody can check against a price page.
+ *  Approximate Q3 2026. */
+const COST_PER_M_USD: Record<LLMProvider, [number, number]> = {
+  anthropic: [5.00, 25.00],    // Opus tier — see ANTHROPIC_MODEL_COST_USD
+  deepseek:  [0.15, 0.23],     // V3
+  qwen:      [0.38, 0.51],     // 2.5 72B via OpenRouter
+  openai:    [0.15, 0.60],     // gpt-4o-mini
   ollama:    [0.00, 0.00],     // local
   // ⚠️ opencode zen "Big Pickle" — FREE BUT TRAINS ON YOUR INPUT. Their docs:
   // "collected data may be used to improve the model", and the sibling free
@@ -90,6 +96,25 @@ const COST_PER_M: Record<LLMProvider, [number, number]> = {
   // third-party personal data (pitch, enrich, outreach).
   zen:       [0.00, 0.00],
   custom:    [0.00, 0.00],     // user-supplied — cost unknown
+}
+
+/** Anthropic prices vary sharply BY MODEL — Fable 5 is double Opus, Haiku is a
+ *  fifth of it. Pricing per-provider alone under-reports any model that isn't
+ *  the assumed default. Prefix-matched so dated variants (…-20260514) resolve
+ *  too; first match wins, so keep specific patterns above general ones. */
+const ANTHROPIC_MODEL_COST_USD: [RegExp, [number, number]][] = [
+  [/^claude-(fable|mythos)-5/, [10.00, 50.00]],
+  [/^claude-opus/,             [ 5.00, 25.00]],
+  [/^claude-sonnet/,           [ 3.00, 15.00]],
+  [/^claude-haiku/,            [ 1.00,  5.00]],
+]
+
+function ratesUsd(provider: LLMProvider, model?: string): [number, number] {
+  if (provider === 'anthropic' && model) {
+    const hit = ANTHROPIC_MODEL_COST_USD.find(([re]) => re.test(model))
+    if (hit) return hit[1]
+  }
+  return COST_PER_M_USD[provider] ?? COST_PER_M_USD.custom
 }
 
 const DEFAULT_MODEL: Record<LLMProvider, string> = {
@@ -169,12 +194,22 @@ const recordUsage = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `)
 
+/** USD cost estimate. Pass `model` on Anthropic — without it every model is
+ *  priced as Opus, which under-reports the pricier tiers by half. */
+export function estimateCostUsd(
+  provider: LLMProvider, tokensIn: number, tokensOut: number, model?: string,
+): number {
+  const [pIn, pOut] = ratesUsd(provider, model)
+  return (tokensIn * pIn + tokensOut * pOut) / 1_000_000
+}
+
 /** GBP cost estimate for a provider's per-token pricing. Exported so callers
  *  that generate OUTSIDE `generate()` (streaming routes, the agent) can price
  *  their own token counts consistently with the rest of the ledger. */
-export function estimateCostGbp(provider: LLMProvider, tokensIn: number, tokensOut: number): number {
-  const [pIn, pOut] = COST_PER_M[provider] ?? COST_PER_M.custom
-  return (tokensIn * pIn + tokensOut * pOut) / 1_000_000
+export function estimateCostGbp(
+  provider: LLMProvider, tokensIn: number, tokensOut: number, model?: string,
+): number {
+  return estimateCostUsd(provider, tokensIn, tokensOut, model) * USD_TO_GBP
 }
 
 export interface LogUsageInput {
@@ -199,7 +234,7 @@ export interface LogUsageInput {
  *  generation that already succeeded. */
 export function logUsage(input: LogUsageInput): number {
   const ok = input.ok !== false
-  const cost = ok ? estimateCostGbp(input.provider, input.tokensIn, input.tokensOut) : 0
+  const cost = ok ? estimateCostGbp(input.provider, input.tokensIn, input.tokensOut, input.model) : 0
   try {
     recordUsage.run(
       input.clientId || '', input.purpose, input.provider, input.provider, input.model,
@@ -262,7 +297,8 @@ async function generateInner(client: ClientLLMConfig | null, opts: GenerateOpts)
       const to = r.usage.output_tokens
       return {
         text, tokens_in: ti, tokens_out: to, provider, model,
-        cost_gbp: (ti * COST_PER_M.anthropic[0] + to * COST_PER_M.anthropic[1]) / 1_000_000,
+        cost_gbp: estimateCostGbp(provider, ti, to, model),
+        cost_usd: estimateCostUsd(provider, ti, to, model),
       }
     } catch (e: any) {
       // Fallback is OpenAI only, and deliberately so. opencode zen's free
@@ -327,10 +363,10 @@ async function generateOpenAICompat(
   const text = data.choices?.[0]?.message?.content || ''
   const ti = data.usage?.prompt_tokens     ?? 0
   const to = data.usage?.completion_tokens ?? 0
-  const [costIn, costOut] = COST_PER_M[provider]
   return {
     text, tokens_in: ti, tokens_out: to, provider, model,
-    cost_gbp: (ti * costIn + to * costOut) / 1_000_000,
+    cost_gbp: estimateCostGbp(provider, ti, to, model),
+    cost_usd: estimateCostUsd(provider, ti, to, model),
   }
 }
 
