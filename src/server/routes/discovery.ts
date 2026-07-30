@@ -231,6 +231,29 @@ router.post('/verticals/:vid/organizations', (req, res) => {
  * one — and an email that isn't on a contact can't be used by the outreach
  * queue, the email-finder, or suppression.
  */
+/** Header fragments the mapper already consumes. Anything whose column name
+ *  matches none of these is "extra" and gets preserved in notes. Kept as
+ *  fragments (not exact names) to mirror how  matches. */
+const MAPPED_COL_FRAGMENTS = [
+  'name', 'business', 'company', 'title',
+  'website', 'url', 'site', 'web', 'domain',
+  'address', 'location', 'postcode', 'zip', 'postal',
+  'category', 'type', 'niche', 'industry', 'segment',
+  'phone', 'telephone', 'mobile',
+  'rating', 'stars', 'review',
+  'email', 'contact', 'owner',
+]
+
+function leftoverCols(row: Record<string, string>): string {
+  const bits: string[] = []
+  for (const [k, v] of Object.entries(row)) {
+    if (!v || !v.trim()) continue
+    if (MAPPED_COL_FRAGMENTS.some(f => k.includes(f))) continue
+    bits.push(`${k.replace(/_/g, ' ')}: ${v.trim()}`)
+  }
+  return bits.join(' · ')
+}
+
 router.post('/verticals/:vid/organizations/import-csv', (req, res) => {
   const { clientId, vid } = req.params as { clientId: string; vid: string }
   const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
@@ -272,6 +295,10 @@ router.post('/verticals/:vid/organizations/import-csv', (req, res) => {
       email,
       // Never let an email masquerade as a person's name.
       contact_name: firstEmail(contactNameRaw) ? '' : contactNameRaw,
+      // Everything the mapping didn't claim, kept verbatim in notes — a lead
+      // export carries columns we'll never anticipate and the user exported
+      // them on purpose.
+      extra: leftoverCols(r),
     }
   }).filter(r => r.name)
 
@@ -317,7 +344,8 @@ router.post('/verticals/:vid/organizations/import-csv', (req, res) => {
       const notes = [
         r.phone && `Phone: ${r.phone}`,
         r.email && `Email: ${r.email}`,
-      ].filter(Boolean).join(' · ')
+        r.extra,
+      ].filter(Boolean).join(' · ').slice(0, 2000)
 
       let orgId: string
       const dupe = r.domain ? exists.get(clientId, r.domain) as any : null
