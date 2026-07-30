@@ -40,6 +40,7 @@ import {
 } from '../services/discovery-visibility.js'
 import { generate, ping } from '../services/llm.js'
 import { findEmail, verifyEmail } from '../services/email-finder.js'
+import { parseCsvObjects, pick, firstEmail, domainFrom } from '../services/csv.js'
 
 const router = Router({ mergeParams: true })
 
@@ -213,6 +214,142 @@ router.post('/verticals/:vid/organizations', (req, res) => {
 
   res.json(db.prepare(`SELECT * FROM dl_organizations WHERE id = ?`).get(id))
 })
+
+/**
+ * POST /verticals/:vid/organizations/import-csv — body: { csv, dry_run? }
+ *
+ * Takes a lead-tool export AS EXPORTED. Parsing happens here rather than in the
+ * browser because the client-side version used split(','), which shredded every
+ * row containing a quoted comma — i.e. every row with an address.
+ *
+ * Column names are aliased rather than mandated: exports differ between tools
+ * and between versions of the same tool, and asking someone to hand-edit 428
+ * rows of headers before importing is how a feature goes unused. Anything
+ * unrecognised is preserved in notes rather than dropped.
+ *
+ * Emails become dl_contacts rows, because dl_organizations has nowhere to put
+ * one — and an email that isn't on a contact can't be used by the outreach
+ * queue, the email-finder, or suppression.
+ */
+router.post('/verticals/:vid/organizations/import-csv', (req, res) => {
+  const { clientId, vid } = req.params as { clientId: string; vid: string }
+  const v = db.prepare(`SELECT 1 FROM verticals WHERE id = ? AND client_id = ?`).get(vid, clientId)
+  if (!v) return res.status(404).json({ error: 'Vertical not found' })
+
+  const csv = String(req.body?.csv || '')
+  if (!csv.trim()) return res.status(400).json({ error: 'csv required' })
+
+  const parsed = parseCsvObjects(csv)
+  if (!parsed.length) return res.status(400).json({ error: 'No data rows found in that CSV.' })
+
+  const mapped = parsed.map(r => {
+    const website = pick(r, 'website', 'url', 'site', 'web', 'domain')
+    const address = pick(r, 'address', 'full_address', 'street_address', 'location', 'formatted_address')
+
+    // LeadSwift calls this column "Contact(s)" — which normalises to contact_s
+    // and matched none of the obvious email aliases, so every email was being
+    // dropped. Caught by the dry-run on a real export.
+    let email = firstEmail(pick(r, 'email', 'emails', 'email_address', 'contact_email', 'contact_s', 'contacts'))
+    // Last resort: scan every cell. Exports bury emails under column names we
+    // will never guess, and an email is unambiguous enough to detect anywhere.
+    if (!email) {
+      for (const v of Object.values(r)) { const e = firstEmail(v); if (e) { email = e; break } }
+    }
+
+    // 'contact' is deliberately NOT a candidate here — it substring-matches
+    // contact_s and would put the email address in the person's name.
+    const contactNameRaw = pick(r, 'contact_name', 'owner', 'owner_name', 'first_name', 'full_name')
+    return {
+      name:        pick(r, 'name', 'business_name', 'company', 'company_name', 'title', 'business'),
+      website,
+      domain:      domainFrom(website),
+      hq_location: address,
+      hq_postcode: pick(r, 'postcode', 'zip', 'zip_code', 'postal_code'),
+      sub_segment: pick(r, 'category', 'type', 'niche', 'industry', 'sub_segment'),
+      phone:       pick(r, 'phone', 'phone_number', 'telephone', 'mobile'),
+      rating:      pick(r, 'google_rating', 'rating', 'stars'),
+      reviews:     pick(r, 'google_reviews', 'reviews', 'review_count', 'total_reviews'),
+      email,
+      // Never let an email masquerade as a person's name.
+      contact_name: firstEmail(contactNameRaw) ? '' : contactNameRaw,
+    }
+  }).filter(r => r.name)
+
+  if (!mapped.length) {
+    return res.status(400).json({
+      error: 'Found rows but no business-name column. Expected one of: name, business_name, company, title.',
+      headers_seen: Object.keys(parsed[0] || {}),
+    })
+  }
+
+  // dry_run lets the UI show exactly what WILL happen before touching the DB —
+  // worth it when a wrong mapping would otherwise write hundreds of bad rows.
+  if (req.body?.dry_run) {
+    return res.json({
+      dry_run: true, rows: mapped.length,
+      with_email: mapped.filter(r => r.email).length,
+      with_domain: mapped.filter(r => r.domain).length,
+      headers_seen: Object.keys(parsed[0] || {}),
+      sample: mapped.slice(0, 3),
+    })
+  }
+
+  const exists = db.prepare(`SELECT id FROM dl_organizations WHERE client_id = ? AND domain = ?`)
+  const insertOrg = db.prepare(`
+    INSERT INTO dl_organizations
+      (id, client_id, vertical_id, name, website, domain, location_count, hq_location,
+       hq_postcode, companies_house_number, sub_segment, notes, google_rating, google_reviews)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, '', ?, ?, ?, ?)
+  `)
+  const contactExists = db.prepare(`SELECT 1 FROM dl_contacts WHERE organization_id = ? AND email = ?`)
+  const insertContact = db.prepare(`
+    INSERT INTO dl_contacts
+      (id, organization_id, full_name, role, email, source, email_status, email_source, email_found_at, gdpr_basis)
+    VALUES (?, ?, ?, '', ?, 'csv-import', 'unverified', 'csv-import', unixepoch(), 'legitimate_interest')
+  `)
+
+  let inserted = 0, skipped = 0, contacts = 0
+  db.exec('BEGIN')
+  try {
+    for (const r of mapped) {
+      // Phone/rating have no dedicated org columns; keeping them in notes beats
+      // discarding data the user exported on purpose.
+      const notes = [
+        r.phone && `Phone: ${r.phone}`,
+        r.email && `Email: ${r.email}`,
+      ].filter(Boolean).join(' · ')
+
+      let orgId: string
+      const dupe = r.domain ? exists.get(clientId, r.domain) as any : null
+      if (dupe) { orgId = dupe.id; skipped++ }
+      else {
+        orgId = crypto.randomUUID()
+        insertOrg.run(
+          orgId, clientId, vid, r.name, r.website, r.domain, r.hq_location,
+          r.hq_postcode, r.sub_segment, notes,
+          parseFloat(r.rating) || null, parseInt(r.reviews, 10) || null,
+        )
+        inserted++
+      }
+
+      if (r.email && !contactExists.get(orgId, r.email)) {
+        insertContact.run(
+          crypto.randomUUID(), orgId,
+          r.contact_name || r.name,   // business email with no named person → the business
+          r.email,
+        )
+        contacts++
+      }
+    }
+    db.exec('COMMIT')
+  } catch (e: any) {
+    db.exec('ROLLBACK')
+    return res.status(500).json({ error: e.message })
+  }
+
+  res.json({ ok: true, inserted, skipped, contacts, total: mapped.length })
+})
+
 
 router.post('/verticals/:vid/organizations/bulk', (req, res) => {
   const { clientId, vid } = req.params as { clientId: string; vid: string }
