@@ -31,6 +31,7 @@ import pitchRouter from './routes/pitch.js'
 import syndicationRouter from './routes/syndication.js'
 import agentsRouter from './routes/agents.js'
 import sitesRouter from './routes/sites.js'
+import searchConsoleRouter from './routes/search-console.js'
 import siteServer from './services/site-server.js'
 import { startScheduler } from './services/scheduler.js'
 import { startJobRunner } from './services/job-runner.js'
@@ -91,6 +92,8 @@ app.use('/api/reports', reportsRouter)
 // Citation Tracker — client-level (brand setup) and brand-level (queries/runs/competitors)
 app.use('/api/clients/:clientId/citation-tracker', citationClientRouter)
 app.use('/api/citation-tracker', citationBrandRouter)
+// Search Console — the client's own first-party Google data (Measure pillar)
+app.use('/api/clients/:clientId/search-console', searchConsoleRouter)
 // Instance settings — BYO API keys (owner-only)
 app.use('/api/settings', settingsRouter)
 // In-app assistant — owner-only, reads live instance data, gated actions

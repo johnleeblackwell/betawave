@@ -30,6 +30,13 @@ export const PROVIDERS: Record<string, { env: string; label: string; kind: 'key'
   // company domain + name, so it's the fallback when a domain is known.
   apollo:          { env: 'APOLLO_API_KEY',      label: 'Apollo.io — email finder (LinkedIn URL)', kind: 'key' },
   hunter:          { env: 'HUNTER_API_KEY',      label: 'Hunter.io — email finder + verifier (domain)', kind: 'key' },
+  // Google Search Console — the client's OWN first-party search data. OAuth
+  // rather than a key: Google has no API-key auth for Search Console. You
+  // create the Google Cloud project and OAuth client, so no middleman ever
+  // holds your Google account.
+  gsc_client_id:     { env: 'GSC_CLIENT_ID',     label: 'Google Search Console — OAuth client ID', kind: 'url' },
+  gsc_client_secret: { env: 'GSC_CLIENT_SECRET', label: 'Google Search Console — OAuth client secret', kind: 'key' },
+  gsc_refresh_token: { env: 'GSC_REFRESH_TOKEN', label: 'Google Search Console — OAuth refresh token', kind: 'key' },
 }
 
 // Capture .env defaults at module load so clearing a BYO key reverts to .env.

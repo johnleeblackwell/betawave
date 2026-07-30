@@ -1584,6 +1584,33 @@ db.exec(`
     payload     TEXT NOT NULL,                      -- JSON: { convo, readResults, actions }
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
   );
+
+  -- Google Search Console: which property belongs to which client. One per
+  -- client; re-connecting replaces the row rather than accumulating.
+  CREATE TABLE IF NOT EXISTS gsc_properties (
+    client_id     TEXT PRIMARY KEY,
+    site_url      TEXT NOT NULL,
+    connected_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Generative-AI performance rows imported from a hand-exported Search Console
+  -- CSV. Separate from anything the API returns because it IS separate — the
+  -- API cannot produce these (no aiOverview type / searchAppearance value), so
+  -- mixing them would blur which numbers are automated and which a human
+  -- uploaded. imported_at groups one upload; the newest batch is current.
+  CREATE TABLE IF NOT EXISTS gsc_ai_rows (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id    TEXT NOT NULL,
+    query        TEXT NOT NULL,
+    clicks       REAL NOT NULL DEFAULT 0,
+    impressions  REAL NOT NULL DEFAULT 0,
+    ctr          REAL NOT NULL DEFAULT 0,
+    position     REAL NOT NULL DEFAULT 0,
+    period_start TEXT DEFAULT '',
+    period_end   TEXT DEFAULT '',
+    imported_at  INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE INDEX IF NOT EXISTS idx_gsc_ai_client ON gsc_ai_rows(client_id, imported_at);
 `)
 
 // Migration: link a usage row to the specific piece of content it produced, so

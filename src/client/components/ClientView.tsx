@@ -6,6 +6,7 @@ import ContentLibrary from './ContentLibrary.tsx'
 import ScheduleManager from './ScheduleManager.tsx'
 import ReportHub from './ReportHub.tsx'
 import CitationHub from './CitationHub.tsx'
+import SearchConsoleHub from './SearchConsoleHub.tsx'
 import RespondHub from './RespondHub.tsx'
 import SocialHub from './SocialHub.tsx'
 import ShopHub from './ShopHub.tsx'
@@ -13,7 +14,7 @@ import DiscoveryHub from './DiscoveryHub.tsx'
 import SyndicationHub from './SyndicationHub.tsx'
 import SiteBuilder from './SiteBuilder.tsx'
 
-type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site'
+type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site' | 'gsc'
 
 type Module = 'profile' | 'produce' | 'reach' | 'respond' | 'measure'
 
@@ -31,9 +32,10 @@ const TAB_META: Record<Tab, { label: string; icon: string; module: Module; disab
   site:     { label: 'Site',      icon: '🌐', module: 'reach' },
   respond:  { label: 'Respond',   icon: '💬', module: 'respond' },
   citation: { label: 'Citations', icon: '📡', module: 'measure' },
+  gsc:      { label: 'Search Console', icon: '🔍', module: 'measure' },
 }
 
-const TAB_ORDER: Tab[] = ['overview', 'sources', 'generate', 'social', 'syndicate', 'reports', 'content', 'site', 'shop', 'discovery', 'schedule', 'respond', 'citation']
+const TAB_ORDER: Tab[] = ['overview', 'sources', 'generate', 'social', 'syndicate', 'reports', 'content', 'site', 'shop', 'discovery', 'schedule', 'respond', 'citation', 'gsc']
 
 // Owner/agency-only tabs — never shown to a client operator. Discovery is the
 // B2B prospecting funnel (finding businesses to sell to), not a client
@@ -251,6 +253,8 @@ export default function ClientView({ clientId, tab, operator = false, onTabChang
       {tab === 'schedule' && <ScheduleManager clientId={clientId} client={client} />}
 
       {tab === 'site' && <SiteBuilder clientId={clientId} client={client} operator={operator} />}
+
+      {tab === 'gsc' && <SearchConsoleHub clientId={clientId} />}
 
       {tab === 'citation' && <CitationHub clientId={clientId} clientName={client.business_name} clientDomain={client.primary_domain} />}
 
