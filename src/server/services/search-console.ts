@@ -174,24 +174,31 @@ export async function summary(siteUrl: string, days = 28): Promise<GscSummary> {
   const endDate = isoDaysAgo(2)
   const startDate = isoDaysAgo(2 + days)
 
-  const [byQuery, byPage] = await Promise.all([
+  // Totals come from a DIMENSIONLESS query, not from summing the query rows.
+  // Two reasons, both of which would otherwise put visibly wrong numbers in
+  // front of a client who can open Search Console and compare:
+  //   1. the query list is capped (top 25 here), so summing it counts a
+  //      fraction of the traffic;
+  //   2. even uncapped it would fall short — Google withholds low-volume
+  //      "anonymised" queries, so per-query rows NEVER sum to the property
+  //      total. This is also why the tables below won't add up to these
+  //      figures, and that gap is expected rather than a bug.
+  const [totalsRow, byQuery, byPage] = await Promise.all([
+    searchAnalytics({ siteUrl, startDate, endDate, dimensions: [], rowLimit: 1 }),
     searchAnalytics({ siteUrl, startDate, endDate, dimensions: ['query'], rowLimit: 25 }),
     searchAnalytics({ siteUrl, startDate, endDate, dimensions: ['page'],  rowLimit: 25 }),
   ])
 
-  const clicks      = byQuery.reduce((s, r) => s + r.clicks, 0)
-  const impressions = byQuery.reduce((s, r) => s + r.impressions, 0)
-  const weightedPos = impressions
-    ? byQuery.reduce((s, r) => s + r.position * r.impressions, 0) / impressions
-    : 0
+  const t = totalsRow[0]
 
   const out: GscSummary = {
     site: siteUrl,
     range: { start: startDate, end: endDate },
     totals: {
-      clicks, impressions,
-      ctr: impressions ? clicks / impressions : 0,
-      position: weightedPos,
+      clicks: t?.clicks ?? 0,
+      impressions: t?.impressions ?? 0,
+      ctr: t?.ctr ?? 0,
+      position: t?.position ?? 0,
     },
     top_queries: byQuery,
     top_pages: byPage,

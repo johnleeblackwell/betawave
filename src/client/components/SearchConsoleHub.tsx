@@ -185,6 +185,8 @@ export default function SearchConsoleHub({ clientId }: { clientId: string }) {
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
             {sum.range.start} → {sum.range.end} · Search Console data lags ~2 days, so the window ends there.
+            {' '}The tables below won't add up to these totals — Google withholds low-volume queries,
+            so per-query rows never sum to the property total.
           </div>
           <RowTable title="Top queries" rows={sum.top_queries} />
           <RowTable title="Top pages" rows={sum.top_pages} />
