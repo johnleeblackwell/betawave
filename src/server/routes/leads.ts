@@ -16,6 +16,7 @@
 import { Router } from 'express'
 import crypto from 'node:crypto'
 import db from '../db.js'
+import { advanceAfterTouch, advanceAfterReply, setStage, isStage, ACTIVE_STAGES } from '../services/pipeline.js'
 
 const router = Router()
 
@@ -143,6 +144,20 @@ function leadIdFromUrl(url: string): string | null {
   return null
 }
 
+export const ALLOWED_CHANNELS = ['connect', 'inmail', 'dm', 'email']
+
+/** `outreach_channel` holds a SET of channels, comma-separated — one person can
+ *  legitimately get a connection request AND a DM. Tolerates the legacy
+ *  single-value rows (they parse to a one-element set) and junk/empty values. */
+function parseChannels(raw: unknown): Set<string> {
+  return new Set(
+    String(raw || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(s => ALLOWED_CHANNELS.includes(s)),
+  )
+}
+
 /** Roles senior enough that a cold connection request usually goes unanswered —
  *  these are the InMail tier. Kept as SQL so ordering/counting stay in one query. */
 const SENIOR_SQL = `(c.role LIKE '%Chief Marketing%' OR c.role LIKE '%CMO%'
@@ -161,29 +176,193 @@ const SENIOR_SQL = `(c.role LIKE '%Chief Marketing%' OR c.role LIKE '%CMO%'
  * extension can say so plainly instead of showing a failure.
  */
 router.post('/mark-contacted', (req, res) => {
-  const { linkedin_url, channel = 'connect', message } = req.body as
-    { linkedin_url?: string; channel?: string; message?: string }
+  const { linkedin_url, channel = 'connect', message, undo } = req.body as
+    { linkedin_url?: string; channel?: string; message?: string; undo?: boolean }
   if (!linkedin_url) return res.status(400).json({ error: 'linkedin_url required' })
 
   const id = leadIdFromUrl(linkedin_url)
   if (!id) return res.status(400).json({ error: 'Not a recognisable LinkedIn profile URL' })
 
   const contact = db.prepare(
-    `SELECT c.id, c.full_name, c.outreach_status FROM dl_contacts c WHERE c.linkedin_url LIKE ? LIMIT 1`,
+    `SELECT c.id, c.full_name, c.outreach_status, c.outreach_channel, c.stage, c.touches, c.outreach_sent_at
+     FROM dl_contacts c WHERE c.linkedin_url LIKE ? LIMIT 1`,
   ).get(`%${id}%`) as any
   if (!contact) return res.json({ ok: true, found: false })
 
-  const allowed = ['connect', 'inmail', 'dm', 'email']
-  const ch = allowed.includes(channel) ? channel : 'connect'
+  // Undo — a mis-click is common (the buttons sit next to each other and the
+  // real send happens in LinkedIn's UI, not here), and without this the only
+  // fix was editing the database. Removes just THIS channel; the contact only
+  // returns to the day's queue once no channels are left on them.
+  if (undo) {
+    const left = parseChannels(contact.outreach_channel)
+    left.delete(channel)
+    const csv = [...left].join(',')
+    if (left.size) {
+      db.prepare(`UPDATE dl_contacts SET outreach_channel = ? WHERE id = ?`).run(csv, contact.id)
+    } else {
+      db.prepare(`
+        UPDATE dl_contacts
+        SET outreach_status = 'not_contacted', outreach_channel = '', outreach_sent_at = NULL,
+            stage = 'new', next_action_at = NULL, touches = 0
+        WHERE id = ?
+      `).run(contact.id)
+    }
+    return res.json({
+      ok: true, found: true, contact_id: contact.id, name: contact.full_name,
+      channels: [...left], undone: true, requeued: left.size === 0,
+    })
+  }
 
+  const ch = ALLOWED_CHANNELS.includes(channel) ? channel : 'connect'
+
+  // A connection request AND a DM to the same person on the same day is ONE
+  // touch, not two — advancing per channel would race someone through the
+  // sequence in an afternoon and burn the follow-ups that actually earn
+  // replies. Only the first mark of the day moves the stage.
+  const startOfDay = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000)
+  const touchedToday = (contact.outreach_sent_at || 0) >= startOfDay
+  const adv = touchedToday
+    ? { stage: contact.stage || 'touch_1', next_action_at: undefined }
+    : advanceAfterTouch(contact.stage || 'new')
+
+  // Channels are a SET, not one value — a connection request and a DM to the
+  // same person are two real touches, and recording only the last one loses
+  // half the history. Stored comma-separated in the existing column so old
+  // single-value rows keep working untouched.
+  const channels = parseChannels(contact.outreach_channel)
+  channels.add(ch)
+  const csv = [...channels].join(',')
+
+  if (touchedToday) {
+    // Same-day second channel: record it, but leave the cadence alone.
+    db.prepare(`
+      UPDATE dl_contacts
+      SET outreach_status = 'messaged', outreach_channel = ?, outreach_sent_at = unixepoch(),
+          outreach_message = COALESCE(NULLIF(?, ''), outreach_message)
+      WHERE id = ?
+    `).run(csv, message || '', contact.id)
+  } else {
+    db.prepare(`
+      UPDATE dl_contacts
+      SET outreach_status = 'messaged', outreach_channel = ?, outreach_sent_at = unixepoch(),
+          outreach_message = COALESCE(NULLIF(?, ''), outreach_message),
+          stage = ?, next_action_at = ?, touches = touches + 1
+      WHERE id = ?
+    `).run(csv, message || '', adv.stage, adv.next_action_at ?? null, contact.id)
+  }
+
+  res.json({
+    ok: true, found: true, contact_id: contact.id, name: contact.full_name,
+    channel: ch, channels: [...channels],
+    stage: adv.stage, next_action_at: adv.next_action_at ?? null,
+  })
+})
+
+/**
+ * GET /api/leads/contact-status?linkedin_url=… — what's already recorded.
+ *
+ * Lets the extension paint the Mark-sent buttons truthfully when you open a
+ * profile, instead of showing a blank slate for someone you already contacted.
+ * With multi-select that matters more: without it you can't tell whether you're
+ * adding a second channel or about to double-send the first.
+ */
+router.get('/contact-status', (req, res) => {
+  const url = String(req.query.linkedin_url || '')
+  if (!url) return res.status(400).json({ error: 'linkedin_url required' })
+  const id = leadIdFromUrl(url)
+  if (!id) return res.json({ ok: true, found: false, channels: [] })
+
+  const c = db.prepare(
+    `SELECT id, full_name, outreach_status, outreach_channel, outreach_sent_at
+     FROM dl_contacts WHERE linkedin_url LIKE ? LIMIT 1`,
+  ).get(`%${id}%`) as any
+  if (!c) return res.json({ ok: true, found: false, channels: [] })
+
+  res.json({
+    ok: true, found: true, name: c.full_name,
+    channels: [...parseChannels(c.outreach_channel)],
+    sent_at: c.outreach_sent_at || null,
+  })
+})
+
+/**
+ * POST /api/leads/:id/replied — someone answered.
+ *
+ * The highest-signal event in the system and the one nothing else can detect:
+ * the extension sees a page, not an inbox, and βWave has no access to LinkedIn
+ * messages or your mail. One click here beats an integration that only ever
+ * covers one channel.
+ *
+ * A reply outranks whatever the cadence had planned — straight to `replied`,
+ * back tomorrow, because a warm reply left three days goes cold.
+ */
+router.post('/:id/replied', (req, res) => {
+  const contact = db.prepare(`SELECT id, full_name FROM dl_contacts WHERE id = ?`).get(req.params.id) as any
+  if (!contact) return res.status(404).json({ error: 'Contact not found' })
+  const adv = advanceAfterReply()
   db.prepare(`
-    UPDATE dl_contacts
-    SET outreach_status = 'messaged', outreach_channel = ?, outreach_sent_at = unixepoch(),
-        outreach_message = COALESCE(NULLIF(?, ''), outreach_message)
-    WHERE id = ?
-  `).run(ch, message || '', contact.id)
+    UPDATE dl_contacts SET stage = ?, next_action_at = ?, last_reply_at = unixepoch() WHERE id = ?
+  `).run(adv.stage, adv.next_action_at, contact.id)
+  res.json({ ok: true, name: contact.full_name, ...adv })
+})
 
-  res.json({ ok: true, found: true, contact_id: contact.id, name: contact.full_name, channel: ch })
+/**
+ * PATCH /api/leads/:id/stage — move someone by hand.
+ *
+ * Body: { stage }. Won/lost/nurture clear the schedule so closed business
+ * stops reappearing in a daily queue; active stages get a fresh due date.
+ */
+router.patch('/:id/stage', (req, res) => {
+  const { stage } = req.body || {}
+  if (!isStage(stage)) return res.status(400).json({ error: 'unknown stage' })
+  const contact = db.prepare(`SELECT id, full_name FROM dl_contacts WHERE id = ?`).get(req.params.id) as any
+  if (!contact) return res.status(404).json({ error: 'Contact not found' })
+  const adv = setStage(stage)
+  db.prepare(`UPDATE dl_contacts SET stage = ?, next_action_at = ? WHERE id = ?`)
+    .run(adv.stage, adv.next_action_at, contact.id)
+  res.json({ ok: true, name: contact.full_name, ...adv })
+})
+
+/**
+ * POST /api/leads/:id/snooze — body: { days }. Not now, but not never.
+ */
+router.post('/:id/snooze', (req, res) => {
+  const days = Math.min(Math.max(parseInt(String(req.body?.days ?? '7'), 10) || 7, 1), 365)
+  const contact = db.prepare(`SELECT id, full_name FROM dl_contacts WHERE id = ?`).get(req.params.id) as any
+  if (!contact) return res.status(404).json({ error: 'Contact not found' })
+  const next = Math.floor(Date.now() / 1000) + days * 86400
+  db.prepare(`UPDATE dl_contacts SET next_action_at = ? WHERE id = ?`).run(next, contact.id)
+  res.json({ ok: true, name: contact.full_name, next_action_at: next, days })
+})
+
+/**
+ * GET /api/leads/pipeline?clientId=&verticalId= — counts by stage.
+ * The scoreboard: where everyone actually is, and what's overdue.
+ */
+router.get('/pipeline', (req, res) => {
+  const clientId = String(req.query.clientId || '')
+  const verticalId = String(req.query.verticalId || '')
+  if (!clientId) return res.status(400).json({ error: 'clientId required' })
+  const scope = verticalId ? 'AND o.vertical_id = ?' : ''
+  const args = verticalId ? [clientId, verticalId] : [clientId]
+
+  const rows = db.prepare(`
+    SELECT c.stage, COUNT(*) AS n
+    FROM dl_contacts c JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE o.client_id = ? ${scope} AND COALESCE(c.suppressed,0) = 0
+    GROUP BY c.stage
+  `).all(...args) as any[]
+
+  const overdue = db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM dl_contacts c JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE o.client_id = ? ${scope} AND COALESCE(c.suppressed,0) = 0
+      AND c.next_action_at IS NOT NULL AND c.next_action_at <= unixepoch()
+  `).get(...args) as any
+
+  const by: Record<string, number> = {}
+  for (const r of rows) by[r.stage || 'new'] = r.n
+  res.json({ by_stage: by, overdue: overdue?.n ?? 0 })
 })
 
 /**
@@ -201,8 +380,13 @@ router.get('/today', (req, res) => {
   const verticalId = String(req.query.verticalId || '')
   if (!clientId) return res.status(400).json({ error: 'clientId required' })
 
-  const connectCap = Math.min(Math.max(parseInt(String(req.query.connects ?? '20'), 10) || 20, 1), 50)
-  const inmailCap  = Math.min(Math.max(parseInt(String(req.query.inmails  ?? '10'), 10) || 10, 0), 50)
+  // Per-segment DM quota. DM is now the primary channel: in practice every
+  // Sales Navigator lead worked so far has been reachable by direct message,
+  // and DMs carry no daily ceiling — so the old "senior roles get InMail"
+  // split was rationing a resource that wasn't scarce and spending InMail
+  // credits that weren't needed.
+  const dmCap = Math.min(Math.max(parseInt(String(req.query.dms ?? '30'), 10) || 30, 1), 200)
+  const connectCap = Math.min(Math.max(parseInt(String(req.query.connects ?? '20'), 10) || 20, 0), 50)
 
   const scope = verticalId ? 'AND o.vertical_id = ?' : ''
   const scopeArgs = verticalId ? [verticalId] : []
@@ -217,37 +401,97 @@ router.get('/today', (req, res) => {
   `
   const cols = `c.id, c.full_name, c.role, c.linkedin_url, c.priority_score, o.name AS company`
 
-  const inmail = db.prepare(
-    `SELECT ${cols} ${available} AND ${SENIOR_SQL} ORDER BY c.priority_score DESC, c.full_name LIMIT ?`,
-  ).all(clientId, ...scopeArgs, inmailCap)
+  // ── Follow-ups FIRST ──────────────────────────────────────────────────────
+  // Replies cluster at touches 3-5, so returning to people already contacted
+  // beats adding new ones. Worked in due-date order (most overdue first) — a
+  // follow-up that slides a week has lost most of its value.
+  const dueCols = `${cols}, c.stage, c.touches, c.next_action_at, c.outreach_channel`
+  const due = db.prepare(`
+    SELECT ${dueCols}
+    FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    WHERE o.client_id = ? ${scope}
+      AND COALESCE(c.suppressed, 0) = 0
+      AND c.next_action_at IS NOT NULL
+      AND c.next_action_at <= unixepoch()
+      AND c.stage IN (${ACTIVE_STAGES.map(() => '?').join(',')})
+    ORDER BY c.next_action_at ASC, c.priority_score DESC
+    LIMIT ?
+  `).all(clientId, ...scopeArgs, ...ACTIVE_STAGES, dmCap)
 
-  const connect = db.prepare(
-    `SELECT ${cols} ${available} AND NOT ${SENIOR_SQL} ORDER BY c.priority_score DESC, c.full_name LIMIT ?`,
-  ).all(clientId, ...scopeArgs, connectCap)
+  // New contacts top the day up to the quota — never at the expense of a
+  // follow-up that's already owed.
+  const newCap = Math.max(0, dmCap - due.length)
+  const queue = newCap
+    ? db.prepare(
+        `SELECT ${cols}, CASE WHEN ${SENIOR_SQL} THEN 1 ELSE 0 END AS senior
+         ${available} AND c.stage = 'new'
+         ORDER BY c.priority_score DESC, c.full_name LIMIT ?`,
+      ).all(clientId, ...scopeArgs, newCap)
+    : []
 
   // Sent today, by channel — drives the "12 / 20 done" progress in the UI.
+  // Counted per-channel with LIKE rather than GROUP BY, because a contact can
+  // carry several channels ("connect,dm") and must count toward EACH of them:
+  // the 20/day ceiling that gets accounts restricted is specifically on
+  // connection requests, so a connect+DM has to score against the connect cap.
+  const chExpr = `',' || COALESCE(NULLIF(c.outreach_channel, ''), 'connect') || ','`
+  const countCh = (name: string) =>
+    `SUM(CASE WHEN ${chExpr} LIKE '%,${name},%' THEN 1 ELSE 0 END)`
   const sentToday = db.prepare(`
-    SELECT COALESCE(NULLIF(c.outreach_channel, ''), 'connect') AS channel, COUNT(*) AS n
+    SELECT
+      ${countCh('connect')} AS connect,
+      ${countCh('inmail')}  AS inmail,
+      ${countCh('dm')}      AS dm,
+      ${countCh('email')}   AS email,
+      COUNT(*)              AS people
     FROM dl_contacts c
     JOIN dl_organizations o ON o.id = c.organization_id
     WHERE o.client_id = ? ${scope}
       AND c.outreach_status = 'messaged'
       AND c.outreach_sent_at >= unixepoch('now', 'start of day')
-    GROUP BY channel
-  `).all(clientId, ...scopeArgs) as any[]
+  `).get(clientId, ...scopeArgs) as any
 
   const remaining = db.prepare(`SELECT COUNT(*) AS n ${available}`).get(clientId, ...scopeArgs) as any
 
+  // ⚠️ ACCOUNT-WIDE connect count — deliberately unscoped by client or vertical.
+  // LinkedIn rate-limits the ACCOUNT, not the campaign. Running four segments
+  // each showing "0/20 connects" would invite 80 requests in a day and get the
+  // account restricted, which ends every campaign at once rather than slowing
+  // one. This is the number that actually governs the day.
+  const accountConnects = db.prepare(`
+    SELECT ${countCh('connect')} AS connect, ${countCh('dm')} AS dm, COUNT(*) AS people
+    FROM dl_contacts c
+    WHERE c.outreach_status = 'messaged'
+      AND c.outreach_sent_at >= unixepoch('now', 'start of day')
+  `).get() as any
+
+  const connectsLeft = Math.max(0, connectCap - (accountConnects?.connect || 0))
+
   res.json({
-    caps: { connects: connectCap, inmails: inmailCap },
+    caps: { dms: dmCap, connects: connectCap },
+    // This segment's progress.
     sent_today: {
-      connect: sentToday.find(r => r.channel === 'connect')?.n || 0,
-      inmail:  sentToday.find(r => r.channel === 'inmail')?.n  || 0,
-      total:   sentToday.reduce((s, r) => s + r.n, 0),
+      connect: sentToday?.connect || 0,
+      inmail:  sentToday?.inmail  || 0,
+      dm:      sentToday?.dm      || 0,
+      email:   sentToday?.email   || 0,
+      // People contacted, not touches — connect+DM on one person is one person.
+      people:  sentToday?.people  || 0,
+      total:   sentToday?.people  || 0,
+    },
+    // The whole LinkedIn account, every segment. `connects_left` is the only
+    // number that should ever gate sending a connection request.
+    account_today: {
+      connect: accountConnects?.connect || 0,
+      dm:      accountConnects?.dm      || 0,
+      people:  accountConnects?.people  || 0,
+      connects_left: connectsLeft,
+      connect_cap_hit: connectsLeft === 0,
     },
     remaining_in_list: remaining?.n ?? 0,
-    inmail,
-    connect,
+    due,
+    queue,
   })
 })
 

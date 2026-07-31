@@ -1636,4 +1636,28 @@ if (!existingContactCols.includes('outreach_channel')) {
 db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_outreach ON dl_contacts(outreach_status, outreach_sent_at)`)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_linkedin ON dl_contacts(linkedin_url)`)
 
+// Pipeline stage + when the next touch is due. Two columns are genuinely the
+// whole CRM: today's follow-ups, what's stalled, conversion by stage are all
+// queries over these.
+//
+// A binary contacted/not-contacted flag is a list, not a pipeline — nothing
+// knows a second touch is owed, so a day's work can only ever mean NEW people
+// and the touches where replies cluster (3-5) never happen.
+if (!existingContactCols.includes('stage')) {
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN stage TEXT NOT NULL DEFAULT 'new'`)
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN next_action_at INTEGER`)
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN touches INTEGER NOT NULL DEFAULT 0`)
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN last_reply_at INTEGER`)
+  // Backfill from the old flag, dated from the real send time so the cadence
+  // picks up mid-flight rather than dumping every past contact into one day.
+  db.exec(`
+    UPDATE dl_contacts
+    SET stage = 'touch_1',
+        touches = 1,
+        next_action_at = COALESCE(outreach_sent_at, unixepoch()) + 3*86400
+    WHERE outreach_status = 'messaged'
+  `)
+}
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_due ON dl_contacts(next_action_at, stage)`)
+
 export default db
