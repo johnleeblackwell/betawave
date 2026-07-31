@@ -155,8 +155,25 @@ export function meHandler(req: Request, res: Response) {
   res.json(a)
 }
 
+/**
+ * Post-login destination, restricted to same-origin relative paths.
+ *
+ * `from` is attacker-controllable via the URL, and feeding it unchecked to
+ * res.redirect() is an open redirect: /login?from=https://evil.com renders the
+ * genuine login page and then throws the freshly-authenticated user at someone
+ * else's site — a phishing amplifier wearing your own domain.
+ *
+ * Allow "/path" only. Rejects absolute URLs, scheme-relative "//host" (which
+ * browsers treat as absolute), javascript: payloads, and "/\host" — several
+ * browsers normalise the backslash, turning it back into "//host".
+ */
+function safeFrom(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw : ''
+  return /^\/(?![/\\])/.test(s) ? s : '/'
+}
+
 export function loginHandler(req: Request, res: Response) {
-  const from = (req.query.from as string) || '/'
+  const from = safeFrom(req.query.from)
 
   if (req.method === 'GET') {
     return res.send(loginPage(from))
