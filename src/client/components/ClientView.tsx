@@ -14,7 +14,10 @@ import DiscoveryHub from './DiscoveryHub.tsx'
 import SyndicationHub from './SyndicationHub.tsx'
 import SiteBuilder from './SiteBuilder.tsx'
 
-type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site' | 'gsc'
+/** Exported so App.tsx can share this list rather than keep its own copy —
+ *  a duplicated union silently drifts, and adding 'gsc' here without updating
+ *  the copy is exactly how this stopped compiling. */
+export type Tab = 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'reports' | 'schedule' | 'respond' | 'citation' | 'shop' | 'discovery' | 'syndicate' | 'site' | 'gsc'
 
 type Module = 'profile' | 'produce' | 'reach' | 'respond' | 'measure'
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, createContext, useContext, useCallback } from 'react'
 import Dashboard from './components/Dashboard.tsx'
-import ClientView from './components/ClientView.tsx'
+import ClientView, { type Tab } from './components/ClientView.tsx'
 import ClientForm from './components/ClientForm.tsx'
 import AffiliatesHub from './components/AffiliatesHub.tsx'
 import SettingsHub from './components/SettingsHub.tsx'
@@ -79,7 +79,7 @@ export type View =
   | { type: 'dashboard' }
   | { type: 'affiliates' }
   | { type: 'settings' }
-  | { type: 'client'; id: string; tab: 'overview' | 'sources' | 'content' | 'generate' | 'social' | 'syndicate' | 'reports' | 'site' | 'shop' | 'schedule' | 'respond' | 'citation' | 'discovery' }
+  | { type: 'client'; id: string; tab: Tab }
   | { type: 'new-client' }
   | { type: 'edit-client'; id: string }
 

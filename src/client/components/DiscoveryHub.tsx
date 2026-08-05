@@ -36,6 +36,10 @@ interface Organization {
   sub_segment: string
   status: string
   contact_count?: number
+  contacts?: { full_name: string; role: string; linkedin_url: string }[]
+  google_rating?: number | null
+  google_reviews?: number | null
+  search_status?: 'not_searched' | 'searched_no_match'
 }
 
 interface Contact {
@@ -81,8 +85,13 @@ type View =
   | { type: 'vertical'; verticalId: string; tab: 'orgs' | 'contacts' | 'prospects' }
   | { type: 'org'; orgId: string; verticalId: string }
 
-export default function DiscoveryHub({ clientId }: { clientId: string }) {
-  const [view, setView] = useState<View>({ type: 'home' })
+export default function DiscoveryHub({ clientId, initialView }: { clientId: string; initialView?: string }) {
+  // `?view=today` on the URL opens straight into the outreach queue, so a
+  // browser side panel can sit on it beside a mail client. Read once on mount;
+  // after that it's ordinary in-app state.
+  const [view, setView] = useState<View>(
+    initialView === 'today' ? { type: 'today' } : { type: 'home' },
+  )
   const [verticals, setVerticals] = useState<Vertical[]>([])
 
   const loadVerticals = useCallback(async () => {
@@ -131,7 +140,7 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenToday, 
   const [showTemplates, setShowTemplates] = useState(false)
   const [seeding, setSeeding] = useState(false)
 
-  const seed = async (template: 'owner-operated' | 'local-services' | 'professional-services') => {
+  const seed = async (template: 'local-sprint' | 'geo-bz' | 'vivid-ink') => {
     setSeeding(true)
     const res = await fetch(`/api/clients/${clientId}/discovery/verticals/seed`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -166,14 +175,14 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenToday, 
         <div className="card" style={{ marginBottom: 16 }}>
           <div className="card-body" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className="text-muted" style={{ fontSize: '0.85rem', marginRight: 4 }}>Seed a curated vertical set (skips any that already exist):</span>
-            <button className="btn btn-primary btn-sm" disabled={seeding} onClick={() => seed('owner-operated')}>
-              🏃 Owner-operated (Dentists / Aesthetics / Home / Legal / Vets)
+            <button className="btn btn-primary btn-sm" disabled={seeding} onClick={() => seed('local-sprint')}>
+              🏃 Local sprint (Dentists / Aesthetics / Home / Legal / Vets)
             </button>
-            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('local-services')}>
+            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('geo-bz')}>
               Multi-unit (Home / Trades / Beauty)
             </button>
-            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('professional-services')}>
-              Professional services
+            <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('vivid-ink')}>
+              Events &amp; culture
             </button>
           </div>
         </div>
@@ -188,11 +197,11 @@ function HomeView({ clientId, verticals, reload, onSelectVertical, onOpenToday, 
               Verticals define the categories of organisations you'll target with the Discovery funnel. Start with a curated template or build from scratch.
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button className="btn btn-primary btn-sm" disabled={seeding} onClick={() => seed('local-services')}>
+              <button className="btn btn-primary btn-sm" disabled={seeding} onClick={() => seed('geo-bz')}>
                 Local services (Home / Trades / Beauty)
               </button>
-              <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('professional-services')}>
-                Professional services (Legal / Accountancy / Healthcare / Property)
+              <button className="btn btn-secondary btn-sm" disabled={seeding} onClick={() => seed('vivid-ink')}>
+                Events & culture (Conventions / Music / Editorial / Corporate)
               </button>
               <button className="btn btn-ghost btn-sm" onClick={() => setShowAddVertical(true)}>
                 Or add custom →
@@ -484,11 +493,17 @@ function VerticalDetail({ clientId, verticalId, tab, onTabChange, onSelectOrg, o
 }
 
 // ─── Orgs tab ────────────────────────────────────────────────────────────────
+type SortKey = 'name' | 'domain' | 'location_count' | 'sub_segment' | 'hq_location' | 'contact_count' | 'google_rating' | 'google_reviews'
+
 function OrgsTab({ clientId, verticalId, onSelectOrg }: { clientId: string; verticalId: string; onSelectOrg: (id: string) => void }) {
   const { showToast } = useToast()
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [showBulk, setShowBulk] = useState(false)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [filter, setFilter] = useState('')
+  const [needsSearchOnly, setNeedsSearchOnly] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/clients/${clientId}/discovery/verticals/${verticalId}/organizations`)
@@ -497,10 +512,62 @@ function OrgsTab({ clientId, verticalId, onSelectOrg }: { clientId: string; vert
 
   useEffect(() => { load() }, [load])
 
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir(key === 'google_reviews' || key === 'google_rating' ? 'desc' : 'asc') }
+  }
+
+  const toggleNeedsSearch = () => {
+    const next = !needsSearchOnly
+    setNeedsSearchOnly(next)
+    if (next) { setSortKey('google_reviews'); setSortDir('desc') }
+  }
+
+  const markSearched = async (org: Organization) => {
+    const next = org.search_status === 'searched_no_match' ? 'not_searched' : 'searched_no_match'
+    await fetch(`/api/clients/${clientId}/discovery/organizations/${org.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ search_status: next }),
+    })
+    load()
+  }
+
+  const sortArrow = (key: SortKey) => sortKey !== key ? '' : sortDir === 'asc' ? ' ▲' : ' ▼'
+
+  const filtered = orgs.filter(o => {
+    if (needsSearchOnly && (o.contact_count ?? 0) > 0) return false
+    if (needsSearchOnly && o.search_status === 'searched_no_match') return false
+    if (!filter.trim()) return true
+    const q = filter.toLowerCase()
+    return o.name.toLowerCase().includes(q)
+      || o.domain?.toLowerCase().includes(q)
+      || o.hq_location?.toLowerCase().includes(q)
+      || o.sub_segment?.toLowerCase().includes(q)
+      || (o.contacts || []).some(c => c.full_name.toLowerCase().includes(q))
+  })
+
+  const sorted = [...filtered].sort((a, b) => {
+    const av = a[sortKey] ?? ''
+    const bv = b[sortKey] ?? ''
+    const cmp = typeof av === 'number' && typeof bv === 'number' ? av - bv : String(av).localeCompare(String(bv))
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+
   return (
     <div className="page-content">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div className="text-muted">{orgs.length} organisations</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="text-muted">{filtered.length} of {orgs.length} organisations</div>
+          <input className="form-input" placeholder="Filter by name, domain, HQ, contact…" value={filter}
+            onChange={e => setFilter(e.target.value)} style={{ width: 260, fontSize: '0.82rem', padding: '4px 8px' }} />
+          <button
+            className={`btn btn-sm ${needsSearchOnly ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={toggleNeedsSearch}
+            title="Show organisations with no contact yet, ranked by Google review count"
+          >
+            🎯 Needs Sales Nav search
+          </button>
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary btn-sm" onClick={() => setShowBulk(!showBulk)}>📋 Bulk import</button>
           <button className="btn btn-primary btn-sm" onClick={() => setShowAdd(!showAdd)}>+ Add organisation</button>
@@ -519,16 +586,67 @@ function OrgsTab({ clientId, verticalId, onSelectOrg }: { clientId: string; vert
       ) : (
         <table className="table">
           <thead>
-            <tr><th>Name</th><th>Domain</th><th>Locations</th><th>Sub-segment</th><th>HQ</th><th>Contacts</th><th></th></tr>
+            <tr>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('name')}>Name{sortArrow('name')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('domain')}>Domain{sortArrow('domain')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('location_count')}>Locations{sortArrow('location_count')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('sub_segment')}>Sub-segment{sortArrow('sub_segment')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('hq_location')}>HQ{sortArrow('hq_location')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('google_rating')}>★{sortArrow('google_rating')}</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('google_reviews')}>Reviews{sortArrow('google_reviews')}</th>
+              <th>Contacts</th>
+              <th style={{ cursor: 'pointer' }} onClick={() => toggleSort('contact_count')}># {sortArrow('contact_count')}</th>
+              <th></th>
+            </tr>
           </thead>
           <tbody>
-            {orgs.map(o => (
+            {sorted.map(o => (
               <tr key={o.id}>
                 <td><strong>{o.name}</strong></td>
                 <td><span className="text-muted" style={{ fontSize: '0.82rem' }}>{o.domain}</span></td>
                 <td>{o.location_count || '—'}</td>
                 <td>{o.sub_segment ? <span className="tag">{o.sub_segment}</span> : '—'}</td>
                 <td style={{ fontSize: '0.82rem', color: '#64748b' }}>{o.hq_location}</td>
+                <td style={{ fontSize: '0.82rem' }}>{o.google_rating ?? '—'}</td>
+                <td style={{ fontSize: '0.82rem' }}>{o.google_reviews ?? '—'}</td>
+                <td>
+                  {(o.contacts?.length ?? 0) === 0 ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {o.search_status === 'searched_no_match' ? (
+                        <span className="text-muted" style={{ fontSize: '0.76rem' }}>searched, no match</span>
+                      ) : (
+                        <span className="text-muted" style={{ fontSize: '0.8rem' }}>—</span>
+                      )}
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: '0.72rem', padding: '1px 6px' }}
+                        onClick={() => markSearched(o)}
+                        title={o.search_status === 'searched_no_match' ? 'Reset to not searched' : 'Mark as searched on Sales Navigator with no result'}
+                      >
+                        {o.search_status === 'searched_no_match' ? '↺ reset' : '✓ mark searched'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {o.contacts!.map((c, i) => (
+                        c.linkedin_url ? (
+                          <a key={i} href={c.linkedin_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.8rem' }}>
+                            {c.full_name}{c.role ? <span className="text-muted"> · {c.role}</span> : null}
+                          </a>
+                        ) : (
+                          <span key={i} style={{ fontSize: '0.8rem' }}>
+                            {c.full_name}{c.role ? <span className="text-muted"> · {c.role}</span> : null}
+                          </span>
+                        )
+                      ))}
+                      {(o.contact_count ?? 0) > (o.contacts?.length ?? 0) && (
+                        <span className="text-muted" style={{ fontSize: '0.74rem' }}>
+                          +{(o.contact_count ?? 0) - (o.contacts?.length ?? 0)} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </td>
                 <td>{o.contact_count}</td>
                 <td><button className="btn btn-ghost btn-sm" onClick={() => onSelectOrg(o.id)}>View →</button></td>
               </tr>
@@ -578,27 +696,27 @@ function AddOrgForm({ clientId, verticalId, onSaved, onCancel }: { clientId: str
 
 function BulkImportOrgs({ clientId, verticalId, onDone }: { clientId: string; verticalId: string; onDone: () => void }) {
   const { showToast } = useToast()
-  const [csv, setCsv] = useState('name,website,location_count,sub_segment,hq_location,hq_postcode\n')
+  const [csv, setCsv] = useState('')
   const [importing, setImporting] = useState(false)
+  const [preview, setPreview] = useState<any>(null)
 
-  const submit = async () => {
+  // Parsing is server-side now. The old client-side split(',') destroyed any
+  // row with a quoted comma — which is every row with an address.
+  const send = async (dryRun: boolean) => {
     setImporting(true)
     try {
-      const lines = csv.trim().split('\n')
-      const headers = lines[0].split(',').map(h => h.trim())
-      const rows = lines.slice(1).map(line => {
-        const cells = line.split(',').map(c => c.trim())
-        const row: any = {}
-        headers.forEach((h, i) => row[h] = cells[i] ?? '')
-        return row
-      }).filter(r => r.name)
-
-      const res = await fetch(`/api/clients/${clientId}/discovery/verticals/${verticalId}/organizations/bulk`, {
+      const res = await fetch(`/api/clients/${clientId}/discovery/verticals/${verticalId}/organizations/import-csv`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ csv, dry_run: dryRun }),
       })
       const data = await res.json()
-      showToast(`Imported ${data.inserted} · skipped ${data.skipped}`)
+      if (!res.ok) {
+        setPreview(null)
+        showToast(data.error || 'Import failed', 'error')
+        return
+      }
+      if (dryRun) { setPreview(data); return }
+      showToast(`Imported ${data.inserted} orgs · ${data.contacts} contacts · skipped ${data.skipped} duplicates`)
       onDone()
     } catch (e: any) {
       showToast(`Import failed: ${e.message}`, 'error')
@@ -612,11 +730,43 @@ function BulkImportOrgs({ clientId, verticalId, onDone }: { clientId: string; ve
       <div className="card-header"><span className="card-title">Bulk import (CSV)</span></div>
       <div className="card-body">
         <div className="text-muted" style={{ fontSize: '0.8rem', marginBottom: 8 }}>
-          Headers required on first line. Recognised columns: <code>name, website, domain, location_count, sub_segment, hq_location, hq_postcode, companies_house_number, notes</code>. Domain is auto-derived from website if blank. Dedupes by domain within this client.
+          Paste a lead-tool export exactly as it came out — LeadSwift, Apollo, a Google Sheet.
+          Column names are matched loosely (<code>name / business_name / company</code>,
+          <code> website / url</code>, <code>email</code>, <code>address</code>, <code>phone</code>,
+          <code> category</code>, <code>rating</code>, <code>reviews</code>), so you shouldn't need to
+          edit headers. Quoted commas inside addresses are handled. Emails become contacts on the
+          business. Dedupes by domain within this client.
         </div>
-        <textarea className="form-input" rows={10} value={csv} onChange={e => setCsv(e.target.value)} style={{ fontFamily: 'monospace', fontSize: '0.82rem' }} />
+        <textarea className="form-input" rows={10} value={csv} placeholder="Paste CSV including its header row…"
+                  onChange={e => { setCsv(e.target.value); setPreview(null) }}
+                  style={{ fontFamily: 'monospace', fontSize: '0.82rem' }} />
+
+        {preview && (
+          <div style={{ marginTop: 10, padding: 12, borderRadius: 8, background: 'var(--bg-elevated-2)', fontSize: '0.82rem' }}>
+            <strong>{preview.rows} rows readable</strong> · {preview.with_email} with an email · {preview.with_domain} with a domain
+            <div style={{ color: 'var(--text-tertiary)', marginTop: 6, wordBreak: 'break-word' }}>
+              Columns seen: {(preview.headers_seen || []).join(', ')}
+            </div>
+            {preview.sample?.[0] && (
+              <div style={{ color: 'var(--text-tertiary)', marginTop: 6 }}>
+                First row reads as: <strong>{preview.sample[0].name}</strong>
+                {preview.sample[0].hq_location && ` · ${preview.sample[0].hq_location}`}
+                {preview.sample[0].email && ` · ${preview.sample[0].email}`}
+              </div>
+            )}
+            <div style={{ marginTop: 6 }}>
+              If a column landed in the wrong place, say so before importing.
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-          <button className="btn btn-primary btn-sm" onClick={submit} disabled={importing}>{importing ? 'Importing…' : 'Import'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => send(true)} disabled={importing || !csv.trim()}>
+            {importing ? 'Checking…' : '🔍 Check mapping first'}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={() => send(false)} disabled={importing || !csv.trim()}>
+            {importing ? 'Importing…' : 'Import'}
+          </button>
           <button className="btn btn-ghost btn-sm" onClick={onDone}>Cancel</button>
         </div>
       </div>
@@ -888,10 +1038,7 @@ function ContextMagnetBanner({ contact }: { contact: Contact }) {
   if (!has) {
     return (
       <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #94a3b8)', margin: '4px 0 10px', padding: '8px 10px', border: '1px dashed var(--border, #334155)', borderRadius: 8 }}>
-        🧲 <strong>Contact Magnetism</strong> grounds this message in something real the person actually said or did,
-        instead of a template. It needs the βWave™ capture extension, which isn't a download —{' '}
-        <a href="https://betawave.co.uk" target="_blank" rel="noopener noreferrer">ask for it</a> and you'll be talked through it.
-        Until then, this draft is written from their name, role and company only.
+        🧲 No captured context yet — view their LinkedIn profile with the βWave™ extension to ground this message in something real about them.
       </div>
     )
   }
@@ -1308,16 +1455,85 @@ interface QueueRow {
   priority_score: number
 }
 interface TodayQueue {
-  caps: { connects: number; inmails: number }
-  sent_today: { connect: number; inmail: number; total: number }
+  caps: { dms: number; connects: number }
+  sent_today: { connect: number; inmail: number; dm: number; email: number; people: number; total: number }
+  /** Whole LinkedIn account, every segment — the connect cap lives here. */
+  account_today: { connect: number; dm: number; people: number; connects_left: number; connect_cap_hit: boolean }
   remaining_in_list: number
-  inmail: QueueRow[]
-  connect: QueueRow[]
+  /** Already contacted, follow-up now due. Worked BEFORE new contacts. */
+  due: (QueueRow & { stage: string; touches: number; next_action_at: number; outreach_channel: string })[]
+  queue: (QueueRow & { senior: number })[]
+}
+
+const STAGE_LABEL: Record<string, string> = {
+  new: 'Not contacted', touch_1: 'Touch 1', touch_2: 'Touch 2', touch_3: 'Touch 3',
+  replied: 'Replied', call_booked: 'Call booked', trial: 'Trialling',
+  won: 'Won', lost: 'Lost', nurture: 'Nurture',
+}
+
+/**
+ * Outcomes rarer than the three on the row itself. Kept in a menu so the common
+ * path stays one click, without the uncommon path being impossible — which is
+ * what "no way of saying they want a call" actually was.
+ */
+const MORE_OUTCOMES: { stage: string; label: string }[] = [
+  // Deliberately unbranded: this file is shared verbatim with the public
+  // self-hosted build, where the product carries the installer's own name.
+  { stage: 'trial', label: '🧪 Trialling' },
+  { stage: 'won', label: '🏆 Won — signed client' },
+  { stage: 'lost', label: '✕ Dead — never resurface' },
+  { stage: 'new', label: '↩ Reset to not contacted' },
+]
+
+/**
+ * Say what the outcome actually did, including the date it takes effect.
+ * Re-marking someone who is already at that stage looks like nothing happened
+ * — the badge and the date are unchanged — so the confirmation has to state
+ * the resulting position rather than merely that a click was received.
+ */
+function outcomeMsg(stage: string, next: number | null): string {
+  const label = STAGE_LABEL[stage] || stage
+  if (!next) return `${label} — no further action scheduled`
+  const d = new Date(next * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  if (stage === 'nurture') return `${label} — resurfaces ${d}`
+  return `${label} — next action ${d}`
+}
+
+function overdueBy(ts: number): string {
+  const days = Math.floor((Date.now() / 1000 - ts) / 86400)
+  if (days <= 0) return 'due today'
+  return `${days}d overdue`
+}
+
+interface SearchRow {
+  id: string; full_name: string; role: string; email: string; linkedin_url: string
+  stage: string; touches: number; outreach_channel: string; next_action_at: number | null
+  last_reply_at: number | null; suppressed: number; company: string; segment: string
 }
 
 function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void }) {
   const [q, setQ] = useState<TodayQueue | null>(null)
   const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SearchRow[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  // The last outcome recorded, shown as a banner. Deliberately not per-row:
+  // the row it refers to has usually just left the list.
+  const [lastAction, setLastAction] = useState<{ name: string; msg: string; tone: 'ok' | 'err' } | null>(null)
+
+  const runSearch = useCallback(async (text: string) => {
+    if (text.trim().length < 2) { setResults(null); return }
+    setSearching(true)
+    const r = await fetch(`/api/leads/search?q=${encodeURIComponent(text.trim())}`)
+    setSearching(false)
+    if (r.ok) setResults((await r.json()).results || [])
+  }, [])
+
+  // Debounced — searching on every keystroke would hammer the box for nothing.
+  useEffect(() => {
+    const t = setTimeout(() => runSearch(query), 300)
+    return () => clearTimeout(t)
+  }, [query, runSearch])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/leads/today?clientId=${clientId}`)
@@ -1332,6 +1548,83 @@ function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void 
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [load])
+
+  // A reply is the highest-signal event here and nothing else can see it —
+  // the extension reads a page, not an inbox. One click, then reload so the
+  // person drops out of today's follow-ups immediately.
+  // "Not at this time" is neither a reply to chase tomorrow nor a dead lead —
+  // it is a soft no with an expiry date, and collapsing it into either one
+  // loses a real prospect. The stages beyond those live in MORE_OUTCOMES.
+  //
+  // Two things this has to get right, both of which it previously got wrong:
+  //   - A failed request used to `return` in silence, so a lost update was
+  //     indistinguishable from a saved one.
+  //   - Marking someone already at that stage changes nothing on screen, which
+  //     reads as a dead button. The banner states the resulting position, so a
+  //     no-op still confirms where the person now stands.
+  const mark = async (id: string, what: string) => {
+    const r = what === 'replied'
+      ? await fetch(`/api/leads/${id}/replied`, { method: 'POST' })
+      : await fetch(`/api/leads/${id}/stage`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stage: what }),
+        })
+    const d = await r.json().catch(() => ({} as any))
+    if (!r.ok) {
+      setLastAction({ name: d?.name || 'That contact', msg: d?.error || `couldn't be saved (${r.status})`, tone: 'err' })
+      return
+    }
+    // Patch in place as well as refetching: marking a follow-up removes it from
+    // the due list, and a row that vanishes with no other signal is exactly the
+    // ambiguity being fixed here. The banner outlives the row.
+    const patch = <T extends { id: string }>(row: T): T =>
+      row.id === id ? { ...row, stage: d.stage, next_action_at: d.next_action_at } : row
+    setResults(rs => (rs ? rs.map(patch) : rs))
+    setQ(cur => (cur ? { ...cur, due: cur.due.map(patch), queue: cur.queue.map(patch) } : cur))
+    setLastAction({ name: d.name, msg: outcomeMsg(d.stage, d.next_action_at), tone: 'ok' })
+    load(); if (query.trim().length > 1) runSearch(query)
+  }
+  const snooze = async (id: string, days: number) => {
+    const r = await fetch(`/api/leads/${id}/snooze`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days }),
+    })
+    const d = await r.json().catch(() => ({} as any))
+    if (!r.ok) {
+      setLastAction({ name: d?.name || 'That contact', msg: d?.error || `couldn't be snoozed (${r.status})`, tone: 'err' })
+      return
+    }
+    setLastAction({
+      name: d.name,
+      msg: `snoozed ${days} day${days === 1 ? '' : 's'} — back ${new Date(d.next_action_at * 1000)
+        .toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}`,
+      tone: 'ok',
+    })
+    load()
+  }
+
+  /**
+   * The disposition control, identical on a search hit and a due follow-up so
+   * the same person is dealt with the same way wherever they turn up.
+   */
+  const Outcomes = ({ id }: { id: string }) => (
+    <>
+      <button className="btn btn-primary btn-sm" onClick={() => mark(id, 'replied')}>💬 Replied</button>
+      <button className="btn btn-primary btn-sm" title="They want a call or video meeting"
+              onClick={() => mark(id, 'call_booked')}>📞 Call booked</button>
+      <button className="btn btn-ghost btn-sm" title="Soft no — back in 90 days"
+              onClick={() => mark(id, 'nurture')}>🕰 Not now</button>
+      <select
+        className="form-input"
+        style={{ width: 'auto', fontSize: '0.78rem', padding: '4px 8px' }}
+        value=""
+        onChange={e => { if (e.target.value) mark(id, e.target.value) }}
+      >
+        <option value="">More…</option>
+        {MORE_OUTCOMES.map(o => <option key={o.stage} value={o.stage}>{o.label}</option>)}
+      </select>
+    </>
+  )
 
   const Row = ({ r, tier }: { r: QueueRow; tier?: string }) => (
     <div style={{
@@ -1354,8 +1647,8 @@ function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void 
 
   if (loading) return <div className="page-content"><span className="loading" /> Loading today's queue…</div>
 
-  const done = q ? q.sent_today.total : 0
-  const target = q ? q.caps.connects + q.caps.inmails : 0
+  const done = q ? q.sent_today.people : 0
+  const target = q ? q.caps.dms : 0
 
   return (
     <div className="page-content">
@@ -1387,44 +1680,198 @@ function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void 
               }} />
             </div>
             <div className="text-muted" style={{ fontSize: '0.75rem', marginTop: 6 }}>
-              {q?.sent_today.connect ?? 0} connects · {q?.sent_today.inmail ?? 0} InMail
-              {done >= target && target > 0 && ' — cap reached, stop here'}
+              this segment: {q?.sent_today.dm ?? 0} DM · {q?.sent_today.connect ?? 0} connect
+              {!!q?.sent_today.email && ` · ${q.sent_today.email} email`}
+              {done >= target && target > 0 && ' — segment quota done'}
             </div>
           </div>
         </div>
       </div>
 
-      {/* InMail tier — senior roles that rarely accept a cold connect */}
-      {!!q?.inmail.length && (
-        <div className="card" style={{ marginBottom: 16 }}>
-          <div className="card-header">
-            <span className="card-title">🎯 InMail — {q.inmail.length}</span>
-            <span className="text-muted" style={{ fontSize: '0.78rem' }}>
-              senior roles · no connection needed · a reply refunds the credit
-            </span>
+      {/* ⚠️ Account-wide connect budget. DMs are uncapped; connection requests
+          are NOT, and LinkedIn counts the account rather than the campaign —
+          so four segments each showing their own "0/20" would quietly invite
+          80 requests in a day and get the account restricted. */}
+      {q && (
+        <div className="card" style={{
+          marginBottom: 16,
+          borderColor: q.account_today.connect_cap_hit ? 'var(--danger)' : 'var(--border-default)',
+        }}>
+          <div className="card-body" style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{
+                fontSize: '1.3rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+                color: q.account_today.connect_cap_hit ? 'var(--danger)' : 'inherit',
+              }}>
+                {q.account_today.connect} <span className="text-muted" style={{ fontSize: '0.9rem', fontWeight: 400 }}>/ {q.caps.connects}</span>
+              </div>
+              <div className="text-muted" style={{ fontSize: '0.72rem' }}>connection requests — WHOLE ACCOUNT, all segments</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 200, fontSize: '0.8rem' }}>
+              {q.account_today.connect_cap_hit ? (
+                <strong style={{ color: 'var(--danger)' }}>
+                  Connect cap reached. DM only for the rest of today — another request risks a restriction,
+                  which ends every campaign at once.
+                </strong>
+              ) : (
+                <>
+                  <strong>{q.account_today.connects_left} connects left today</strong> across all four segments.
+                  {' '}DMs are uncapped — {q.account_today.dm} sent, keep going.
+                </>
+              )}
+            </div>
           </div>
-          <div>{q.inmail.map(r => <Row key={r.id} r={r} />)}</div>
         </div>
       )}
 
-      {/* Connect tier — first few get a written note, the rest go plain */}
-      {!!q?.connect.length && (
+      {/* Confirmation of the last outcome recorded. Sits above both lists
+          because the row it describes has usually just left one of them —
+          previously the only feedback was a row silently disappearing, or,
+          when the stage was already set, nothing at all. */}
+      {lastAction && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 16,
+            borderColor: lastAction.tone === 'err' ? 'var(--danger)' : 'var(--accent)',
+          }}
+        >
+          <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px' }}>
+            <span style={{ fontSize: '0.9rem', flex: 1 }}>
+              {lastAction.tone === 'err' ? '⚠️ ' : '✓ '}
+              <strong>{lastAction.name}</strong> — {lastAction.msg}
+            </span>
+            <button className="btn btn-ghost btn-sm" onClick={() => setLastAction(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Find anyone ──────────────────────────────────────────────────────
+          The queue only shows who is due. Someone who REPLIED is the most
+          important person in the pipeline and is almost never due today — so
+          without this there was no way to record the reply against them. */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-body" style={{ paddingBottom: results ? 0 : undefined }}>
+          <input
+            className="form-input"
+            placeholder="Find anyone — name, company or email (e.g. someone who just replied)"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
+          {searching && <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: 6 }}>searching…</div>}
+          {results && !searching && (
+            <div style={{ marginTop: 10 }}>
+              {!results.length && (
+                <div className="text-muted" style={{ fontSize: '0.85rem', paddingBottom: 12 }}>
+                  Nobody matching “{query}”.
+                </div>
+              )}
+              {results.map(r => (
+                <div key={r.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0',
+                  borderTop: '1px solid var(--border-subtle)', flexWrap: 'wrap',
+                }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                      {r.full_name}
+                      <span className="badge" style={{ marginLeft: 8, fontSize: '0.65rem' }}>
+                        {STAGE_LABEL[r.stage] || r.stage}
+                      </span>
+                      {!!r.suppressed && (
+                        <span className="badge" style={{ marginLeft: 6, fontSize: '0.65rem', color: 'var(--danger)' }}>
+                          opted out
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-muted" style={{ fontSize: '0.78rem' }}>
+                      {r.role}{r.company ? ` · ${r.company}` : ''}{r.segment ? ` · ${r.segment}` : ''}
+                      {r.touches > 0 && ` · ${r.touches} touch${r.touches === 1 ? '' : 'es'}`}
+                      {r.outreach_channel && ` by ${r.outreach_channel.replace(/,/g, ' + ')}`}
+                      {r.next_action_at && ` · next ${new Date(r.next_action_at * 1000).toLocaleDateString()}`}
+                    </div>
+                  </div>
+                  {r.linkedin_url && (
+                    <a className="btn btn-secondary btn-sm" href={r.linkedin_url} target="_blank" rel="noreferrer">Open ↗</a>
+                  )}
+                  <Outcomes id={r.id} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Follow-ups, worked FIRST ────────────────────────────────────────
+          Replies cluster at touches 3-5. Returning to people already contacted
+          beats adding new ones, so this sits above the new-contact list and is
+          ordered most-overdue-first. */}
+      {!!q?.due.length && (
+        <div className="card" style={{ marginBottom: 16, borderColor: 'var(--accent)' }}>
+          <div className="card-header">
+            <span className="card-title">🔁 Follow-ups due — {q.due.length}</span>
+            <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+              do these before any new contacts — this is where replies come from
+            </span>
+          </div>
+          <div>
+            {q.due.map(r => (
+              <div key={r.id} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                borderBottom: '1px solid var(--border-subtle)', flexWrap: 'wrap',
+              }}>
+                <div style={{ flex: 1, minWidth: 160 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                    {r.full_name}
+                    <span className="badge" style={{ marginLeft: 8, fontSize: '0.65rem' }}>
+                      {STAGE_LABEL[r.stage] || r.stage}
+                    </span>
+                  </div>
+                  <div className="text-muted" style={{ fontSize: '0.78rem' }}>
+                    {r.role}{r.company && r.company !== 'Unknown company' ? ` · ${r.company}` : ''}
+                    {' · '}<strong>{overdueBy(r.next_action_at)}</strong>
+                    {r.outreach_channel && ` · sent by ${r.outreach_channel.replace(/,/g, ' + ')}`}
+                  </div>
+                </div>
+                <a className="btn btn-secondary btn-sm" href={r.linkedin_url} target="_blank" rel="noreferrer">Open ↗</a>
+                <Outcomes id={r.id} />
+                <button className="btn btn-ghost btn-sm" onClick={() => snooze(r.id, 7)}>😴 7d</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* New contacts — only top up the day once follow-ups are clear. */}
+      {!!q?.queue.length && (
         <div className="card">
           <div className="card-header">
-            <span className="card-title">🤝 Connect — {q.connect.length}</span>
+            <span className="card-title">✉️ Today — {q.queue.length}</span>
             <span className="text-muted" style={{ fontSize: '0.78rem' }}>
-              top 5 with a note (⚡ Draft pitch → ↻ As connect note) · rest plain
+              DM every one (⚡ Draft pitch → Copy). Add a connection request only to the top few,
+              while connects remain.
             </span>
           </div>
-          <div>{q.connect.map((r, i) => <Row key={r.id} r={r} tier={i < 5 ? 'note' : undefined} />)}</div>
+          <div>
+            {q.queue.map((r, i) => (
+              <Row
+                key={r.id}
+                r={r}
+                tier={
+                  r.senior ? 'senior'
+                    : i < Math.min(5, q.account_today.connects_left) ? '+ connect'
+                    : undefined
+                }
+              />
+            ))}
+          </div>
         </div>
       )}
 
-      {!q?.inmail.length && !q?.connect.length && (
+      {!q?.queue.length && !q?.due.length && (
         <div className="empty-state">
           <div className="empty-state-icon">✅</div>
-          <div className="empty-state-title">Nothing left to send</div>
-          <p>Either today's list is done, or every lead in this client has been contacted.</p>
+          <div className="empty-state-title">Nothing due</div>
+          <p>No follow-ups owed today and no uncontacted leads left in this segment.</p>
         </div>
       )}
     </div>

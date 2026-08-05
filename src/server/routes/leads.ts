@@ -132,7 +132,7 @@ router.post('/bulk-import', (req, res) => {
  * different suffix, so matching on the whole URL silently fails to find people
  * who are definitely in the list. Match on the lead id alone.
  */
-function leadIdFromUrl(url: string): string | null {
+export function leadIdFromUrl(url: string): string | null {
   const u = (url || '').split('?')[0].replace(/\/+$/, '')
   const sn = u.match(/\/sales\/(?:lead|people)\/([^,/]+)/i)
   if (sn) return sn[1]
@@ -273,7 +273,7 @@ router.get('/contact-status', (req, res) => {
   if (!id) return res.json({ ok: true, found: false, channels: [] })
 
   const c = db.prepare(
-    `SELECT id, full_name, outreach_status, outreach_channel, outreach_sent_at
+    `SELECT id, full_name, outreach_status, outreach_channel, outreach_sent_at, stage, touches
      FROM dl_contacts WHERE linkedin_url LIKE ? LIMIT 1`,
   ).get(`%${id}%`) as any
   if (!c) return res.json({ ok: true, found: false, channels: [] })
@@ -282,7 +282,42 @@ router.get('/contact-status', (req, res) => {
     ok: true, found: true, name: c.full_name,
     channels: [...parseChannels(c.outreach_channel)],
     sent_at: c.outreach_sent_at || null,
+    stage: c.stage || 'new',
+    touches: c.touches || 0,
   })
+})
+
+/**
+ * GET /api/leads/search?q=&limit= — find anyone, by name, company or email.
+ *
+ * Absent until now, which meant the only people visible were those the queue
+ * happened to surface today. Someone who replied — the single most important
+ * event in the pipeline — was unreachable unless their follow-up was due,
+ * so the reply could not be recorded against them at all.
+ */
+router.get('/search', (req, res) => {
+  const q = String(req.query.q || '').trim()
+  if (q.length < 2) return res.json({ results: [] })
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '25'), 10) || 25, 1), 100)
+  const like = `%${q}%`
+
+  const results = db.prepare(`
+    SELECT c.id, c.full_name, c.role, c.email, c.linkedin_url, c.stage, c.touches,
+           c.outreach_channel, c.next_action_at, c.last_reply_at, c.suppressed,
+           o.name AS company, v.name AS segment
+    FROM dl_contacts c
+    JOIN dl_organizations o ON o.id = c.organization_id
+    LEFT JOIN verticals v ON v.id = o.vertical_id
+    WHERE c.full_name LIKE ? OR o.name LIKE ? OR c.email LIKE ?
+    ORDER BY
+      -- Exact-ish name matches first; someone typing a name wants that person,
+      -- not every company that happens to contain the string.
+      CASE WHEN c.full_name LIKE ? THEN 0 ELSE 1 END,
+      c.touches DESC, c.full_name
+    LIMIT ?
+  `).all(like, like, like, `${q}%`, limit)
+
+  res.json({ results })
 })
 
 /**

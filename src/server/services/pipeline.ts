@@ -39,16 +39,27 @@ export function isStage(s: unknown): s is Stage {
  * than `lost`, because "no answer" is not "no". They stay reachable when
  * there's a genuine reason to make contact, without clogging the daily queue.
  */
+/** Days before a nurtured contact resurfaces. Long enough that a fresh
+ *  approach is legitimate rather than nagging; short enough that the list stays
+ *  an asset instead of a graveyard. Their situation changes — new budget, new
+ *  boss, an agency that just disappointed them — and none of that is visible
+ *  from outside. */
+export const NURTURE_RESURFACE_DAYS = 90
+
 const NEXT_AFTER_TOUCH: Record<string, { stage: Stage; days: number | null }> = {
   new:     { stage: 'touch_1', days: 3 },
   touch_1: { stage: 'touch_2', days: 5 },
   touch_2: { stage: 'touch_3', days: 7 },
-  touch_3: { stage: 'nurture', days: null },   // sequence exhausted
+  // Sequence exhausted — but "no answer" is not "no". Come back in a quarter
+  // rather than dropping them forever.
+  touch_3: { stage: 'nurture', days: NURTURE_RESURFACE_DAYS },
   // Someone already engaged: keep chasing, but on a human interval.
   replied:     { stage: 'replied',     days: 3 },
   call_booked: { stage: 'call_booked', days: 3 },
   trial:       { stage: 'trial',       days: 7 },
-  nurture:     { stage: 'nurture',     days: null },
+  // A nurtured contact you touch again goes back into the queue on the same
+  // quarterly rhythm rather than falling silent for good.
+  nurture:     { stage: 'nurture',     days: NURTURE_RESURFACE_DAYS },
 }
 
 export interface Advance { stage: Stage; next_action_at: number | null }
@@ -71,11 +82,17 @@ export function advanceAfterReply(now = Math.floor(Date.now() / 1000)): Advance 
   return { stage: 'replied', next_action_at: now + 86400 }
 }
 
-/** Human-set stage. Terminal and nurture stages clear the schedule. */
+/**
+ * Human-set stage.
+ *
+ * Won/lost clear the schedule — those are decisions, not pauses. Nurture does
+ * NOT: it is where "not right now" belongs, and the whole point of that answer
+ * is that it has an expiry date. Clearing the schedule would turn a soft no
+ * into a permanent one, which is the commonest way a pipeline quietly leaks.
+ */
 export function setStage(stage: Stage, now = Math.floor(Date.now() / 1000)): Advance {
-  if (TERMINAL_STAGES.includes(stage) || stage === 'nurture') {
-    return { stage, next_action_at: null }
-  }
+  if (TERMINAL_STAGES.includes(stage)) return { stage, next_action_at: null }
+  if (stage === 'nurture') return { stage, next_action_at: now + NURTURE_RESURFACE_DAYS * 86400 }
   if (stage === 'new') return { stage, next_action_at: null }
   const rule = NEXT_AFTER_TOUCH[stage]
   return { stage, next_action_at: rule?.days ? now + rule.days * 86400 : now + 3 * 86400 }
