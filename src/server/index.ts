@@ -27,6 +27,7 @@ import shopRouter, { shopPublicRouter, storefrontRouter } from './routes/shop.js
 import discoveryRouter from './routes/discovery.js'
 import enrichRouter from './routes/enrich.js'
 import leadsRouter from './routes/leads.js'
+import connectionsImportRouter from './routes/connections-import.js'
 import pitchRouter from './routes/pitch.js'
 import syndicationRouter from './routes/syndication.js'
 import agentsRouter from './routes/agents.js'
@@ -120,6 +121,7 @@ app.use('/api/clients/:clientId/discovery', discoveryRouter)
 app.use('/api/enrich', enrichRouter)
 // Broad role-based lead capture with priority scoring (no pre-filtering)
 app.use('/api/leads', leadsRouter)
+app.use('/api/connections', connectionsImportRouter)
 // Instant pitch drafter — any LinkedIn profile, no contact record required
 app.use('/api/pitch', pitchRouter)
 // Syndication — RSS-source → X-destination auto-poster (no approval queue)
