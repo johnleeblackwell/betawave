@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Client, useToast } from '../App.tsx'
 import SourceManager from './SourceManager.tsx'
+import OverviewDashboard from './OverviewDashboard.tsx'
 import ContentGenerator from './ContentGenerator.tsx'
 import ContentLibrary from './ContentLibrary.tsx'
 import ScheduleManager from './ScheduleManager.tsx'
@@ -159,6 +160,7 @@ export default function ClientView({ clientId, tab, operator = false, onTabChang
       {/* Tab content */}
       {tab === 'overview' && (
         <div className="page-content">
+          <OverviewDashboard clientId={clientId} />
           {client.mission && (
             <div style={{
               padding: '14px 18px', background: '#eef2ff', border: '1px solid #c7d2fe',

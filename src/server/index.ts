@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 
 import clientsRouter from './routes/clients.js'
 import sourcesRouter from './routes/sources.js'
+import overviewRouter from './routes/overview.js'
 import contentRouter from './routes/content.js'
 import schedulesRouter from './routes/schedules.js'
 import templatesRouter from './routes/templates.js'
@@ -84,6 +85,7 @@ app.post('/api/admin/users', (req, res) => {
 // API routes
 app.use('/api/clients', clientsRouter)
 app.use('/api/clients/:clientId/sources', sourcesRouter)
+app.use('/api/clients/:clientId/overview', overviewRouter)
 app.use('/api/clients/:clientId/content', contentRouter)
 app.use('/api/clients/:clientId/schedules', schedulesRouter)
 app.use('/api/clients/:clientId/locations', locationsRouter)
