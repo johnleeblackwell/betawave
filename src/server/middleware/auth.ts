@@ -51,10 +51,12 @@ function verifyUserToken(tok: string | undefined): UserSession | null {
  *            affiliates, pSEO generation + pSEO site-publishing (agency-only),
  *            and any path/param referencing a different client.
  */
-function operatorGuard(user: UserSession, req: Request, res: Response, next: NextFunction) {
+export function operatorGuard(user: UserSession, req: Request, res: Response, next: NextFunction) {
   const p = req.path
   const CID = (user.client_id || '').toLowerCase()
   const deny = () => res.status(403).json({ error: 'forbidden' })
+  // Demo users get the same one-client scoping, plus read-only Discovery.
+  const allowDiscovery = user.role === 'demo'
   if (p === '/api/me') return next()
   if (!p.startsWith('/api/')) return next()   // SPA shell + static
 
@@ -70,7 +72,15 @@ function operatorGuard(user: UserSession, req: Request, res: Response, next: Nex
     // site) is an agency capability, not a client one — too easy to do real
     // damage (duplicate/thin content, or an accidental live publish) without
     // the judgment call that should sit with the agency operating the account.
-    if (/^\/(discovery|prospects|pseo)(\/|$)/.test(m[2] || '')) return deny()
+    // Discovery is the B2B prospecting funnel — an agency capability, not a
+    // client one, so a client operator never sees it. A DEMO user is the
+    // opposite case: they are a prospect being shown what the product does, and
+    // Reach is the most persuasive thing in it. Hiding it meant the demo login
+    // showed Produce and little else, which undersold the product to the exact
+    // audience the login exists for. Every write is already refused upstream in
+    // demoGuard, so this is read-only either way.
+    if (/^\/(discovery|prospects)(\/|$)/.test(m[2] || '') && !allowDiscovery) return deny()
+    if (/^\/pseo(\/|$)/.test(m[2] || '')) return deny()
     if (/^\/sites\/pseo(-publish)?(\/|$)/.test(m[2] || '')) return deny()
     return next()
   }
@@ -80,7 +90,14 @@ function operatorGuard(user: UserSession, req: Request, res: Response, next: Nex
   // RSS validation, Shop. NOT here ⇒ denied (settings, users, admin, snapshots,
   // lead-generators, commissions, affiliates, clients-list, and anything unlisted).
   const ALLOW_GLOBAL = /^\/api\/(respond|citation-tracker|reports|jobs|templates|validate-rss|shop)(\/|$)/
-  if (!ALLOW_GLOBAL.test(p)) return deny()
+  // The Discovery screen reads its work queue from /api/leads/today and
+  // /api/leads/search, which are global paths rather than client-scoped ones —
+  // so opening Discovery for the demo without this left the tab visible and
+  // permanently empty. Writes on /api/leads (replied, snooze, stage) are POSTs
+  // and stay refused; the clientId query check below still pins it to the demo
+  // tenant.
+  const ALLOW_DEMO_GLOBAL = /^\/api\/leads(\/|$)/
+  if (!ALLOW_GLOBAL.test(p) && !(allowDiscovery && ALLOW_DEMO_GLOBAL.test(p))) return deny()
 
   // Respond accounts carry the client id in the path — must be theirs.
   const ra = p.match(/^\/api\/respond\/accounts\/([^/]+)/)
@@ -91,6 +108,27 @@ function operatorGuard(user: UserSession, req: Request, res: Response, next: Nex
   if (q && q !== CID) return deny()
 
   return next()
+}
+
+/**
+ * Demo users are operators with the brakes on: the same one-client scoping, but
+ * strictly READ-ONLY. Every mutating request (anything that isn't a GET) is
+ * refused, so a login shared with prospects can't generate (no API spend), edit,
+ * send, publish or delete — and, like an operator, can never touch another
+ * tenant or the platform owner's tools. Safe to hand out.
+ */
+export function demoGuard(user: UserSession, req: Request, res: Response, next: NextFunction) {
+  if (req.path === '/api/me') return next()
+  // The in-app assistant IS the demo — let its endpoints through even though they
+  // POST. The agent scopes itself to this one client and only ever writes DRAFTS
+  // (enforced in services/agent.ts), so this stays safe to share.
+  if (/^\/api\/agent\/(chat|approve|suggestions)$/.test(req.path)) return next()
+  // Everything else is strictly read-only: block writes, then apply the same
+  // one-client scoping an operator gets on the remaining GETs.
+  if (req.path.startsWith('/api/') && req.method !== 'GET') {
+    return res.status(403).json({ error: 'This is a read-only demo — get your own free βWave at betawave.co.uk to do this for real.' })
+  }
+  return operatorGuard(user, req, res, next)
 }
 
 // File extensions that must always be accessible (login page needs the logo)
@@ -138,6 +176,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   if (user) {
     ;(req as any).auth = { role: user.role, client_id: user.client_id, email: user.email }
     if (user.role === 'operator') return operatorGuard(user, req, res, next)
+    if (user.role === 'demo') return demoGuard(user, req, res, next)
     return next()                                           // (future full-access roles)
   }
 
@@ -160,12 +199,12 @@ export function meHandler(req: Request, res: Response) {
  *
  * `from` is attacker-controllable via the URL, and feeding it unchecked to
  * res.redirect() is an open redirect: /login?from=https://evil.com renders the
- * genuine login page and then throws the freshly-authenticated user at someone
- * else's site — a phishing amplifier wearing your own domain.
+ * genuine βWave login and then throws the freshly-authenticated user at
+ * someone else's page. That is a phishing amplifier wearing our domain.
  *
  * Allow "/path" only. Rejects absolute URLs, scheme-relative "//host" (which
  * browsers treat as absolute), javascript: payloads, and "/\host" — several
- * browsers normalise the backslash, turning it back into "//host".
+ * browsers normalise the backslash to a slash, turning it back into "//host".
  */
 function safeFrom(raw: unknown): string {
   const s = typeof raw === 'string' ? raw : ''
