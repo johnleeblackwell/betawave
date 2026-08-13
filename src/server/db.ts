@@ -1660,4 +1660,20 @@ if (!existingContactCols.includes('stage')) {
 }
 db.exec(`CREATE INDEX IF NOT EXISTS idx_dl_contacts_due ON dl_contacts(next_action_at, stage)`)
 
+// LinkedIn only lets you message a 1st-degree connection for free; everyone
+// else needs an InMail credit, and an unaccepted request cannot be messaged at
+// all. Without the degree recorded, a follow-up queue has to INFER reachability
+// from which button was last clicked, and that inference is wrong precisely
+// when it matters — a "DM" sent into a pending request was really an InMail.
+//
+// This shipped in the operator's install but the migration was never published,
+// while the code that reads the column was. A fresh clone therefore crashed on
+// the connections importer and the demo seeder with "no column named
+// connection_degree". Found by installing the repo from scratch, which is the
+// only way this class of drift ever shows up.
+if (!existingContactCols.includes('connection_degree')) {
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN connection_degree INTEGER`)
+  db.exec(`ALTER TABLE dl_contacts ADD COLUMN degree_seen_at INTEGER`)
+}
+
 export default db
