@@ -20,8 +20,13 @@ const BUSINESS = 'βWave (demo)'
 
 export interface DemoSeedResult { client: string; queries: number; competitors: number; posts: number }
 
-export function seedDemo(verbose = false): DemoSeedResult {
+export function seedDemo(verbose = false, opts: { discovery?: boolean } = {}): DemoSeedResult {
   const log = (...a: any[]) => { if (verbose) console.log(...a) }
+  // Discovery (prospect pipeline) is off by default now: it's invisible to a
+  // read-only demo login anyway (Discovery is operator/owner-only), and its
+  // fictional orgs/prospects would only clutter the owner's view. Callers that
+  // want the full Zoho-style pipeline pass { discovery: true }.
+  const withDiscovery = opts.discovery === true
   const now = Math.floor(Date.now() / 1000)
   const DAY = 86400
 
@@ -48,18 +53,24 @@ export function seedDemo(verbose = false): DemoSeedResult {
     image_keywords: 'open source, self-hosted, server, ownership, privacy, marketing',
   }
 
+  // Only write columns this DB actually has — the clients table has drifted
+  // across installs (e.g. older DBs predate image_keywords), so filter to the
+  // real column set rather than assume the latest schema.
+  const realCols = new Set((db.prepare(`PRAGMA table_info(clients)`).all() as any[]).map(r => r.name))
+  const fields = Object.fromEntries(Object.entries(clientFields).filter(([k]) => realCols.has(k)))
+
   let client = db.prepare('SELECT * FROM clients WHERE business_name = ?').get(BUSINESS) as any
   if (!client) {
     const id = uuid()
-    const cols = ['id', ...Object.keys(clientFields)]
+    const cols = ['id', ...Object.keys(fields)]
     const placeholders = cols.map(() => '?').join(', ')
     db.prepare(`INSERT INTO clients (${cols.join(', ')}) VALUES (${placeholders})`)
-      .run(id, ...Object.values(clientFields))
+      .run(id, ...Object.values(fields))
     client = db.prepare('SELECT * FROM clients WHERE id = ?').get(id) as any
     log(`✅ Created demo client: ${BUSINESS} (${client.id})`)
   } else {
-    const sets = Object.keys(clientFields).map(k => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE clients SET ${sets} WHERE id = ?`).run(...Object.values(clientFields), client.id)
+    const sets = Object.keys(fields).map(k => `${k} = ?`).join(', ')
+    db.prepare(`UPDATE clients SET ${sets} WHERE id = ?`).run(...Object.values(fields), client.id)
     log(`ℹ️  Demo client exists — refreshed: ${BUSINESS} (${client.id})`)
   }
 
@@ -343,6 +354,7 @@ export function seedDemo(verbose = false): DemoSeedResult {
   // ─── 8. Discovery — a synthetic vertical with example orgs/contacts ────────
   // Entirely fictional company names, not scraped/real businesses — demonstrates
   // the Discovery UI (including LinkedIn outreach drafting) without implying real leads.
+  if (withDiscovery) {
   let vertical = db.prepare(`SELECT * FROM verticals WHERE client_id = ? AND slug = ?`)
     .get(client.id, 'marketing-managers-demo') as any
   if (!vertical) {
@@ -492,12 +504,50 @@ export function seedDemo(verbose = false): DemoSeedResult {
     prospectsAdded++
   }
   log(`✅ Prospects: ${prospectsAdded} added across the full pipeline (scored → approved → sent → hot → won/lost)`)
+  } // end withDiscovery
+
+  // ─── 9b. Bring the seeded contacts onto the modern pipeline ────────────────
+  //
+  // Everything above sets `outreach_status` ('not_contacted' / 'messaged'),
+  // which is the pre-CRM field. The work queue, the follow-up cadence and the
+  // Overview dashboard all read `stage` / `touches` / `next_action_at` instead,
+  // so without this the demo seeded plenty of contacts and Today's outreach
+  // showed an empty list — the single most persuasive screen in the app, blank,
+  // on a freshly seeded install.
+  //
+  // Degree matters too: reachability treats a 1st-degree connection as free to
+  // message, and unknown degree pushes contacts into a "can't reach this yet"
+  // bucket. These are fictional connections, so 1 is the honest value.
+  const pipelined = db.prepare(`
+    UPDATE dl_contacts
+    SET stage = CASE WHEN outreach_status = 'messaged' THEN 'touch_1' ELSE 'new' END,
+        touches = CASE WHEN outreach_status = 'messaged' THEN 1 ELSE 0 END,
+        outreach_channel = CASE WHEN outreach_status = 'messaged' THEN 'dm' ELSE '' END,
+        connection_degree = 1,
+        degree_seen_at = unixepoch(),
+        -- Due dates spread across the next few days rather than dumping every
+        -- follow-up into one screen, so the queue looks like a working week.
+        next_action_at = CASE
+          WHEN outreach_status = 'messaged'
+          THEN COALESCE(outreach_sent_at, unixepoch()) + 3*86400
+          ELSE NULL END
+    -- Client scoping FIRST and the stage test parenthesised. Written the other
+    -- way round, AND binds tighter than OR and the statement reads as
+    -- "(stage IS NULL) OR (stage = 'new' AND this client)" — which rewrites the
+    -- stage, touch count and degree of every null-stage contact in the
+    -- database, for every tenant. A demo seeder must never be able to reach
+    -- another client's pipeline.
+    WHERE organization_id IN (SELECT id FROM dl_organizations WHERE client_id = ?)
+      AND (stage IS NULL OR stage = 'new')
+  `).run(client.id)
+  log(`✅ Pipeline: ${(pipelined as any)?.changes ?? 0} contacts staged for Today's outreach`)
 
   // ─── 10. Citation history — real weekly runs so Measure shows an actual trend ──
   const brandId = brand.id
   const engines = ['anthropic', 'openai', 'perplexity', 'gemini']
   const queryRows = db.prepare('SELECT id FROM tracked_queries WHERE brand_id = ?').all(brandId) as any[]
   const existingRuns = (db.prepare('SELECT COUNT(*) c FROM citation_runs WHERE brand_id = ?').get(brandId) as any).c
+  try {
   if (existingRuns === 0 && queryRows.length > 0) {
     const WEEKS = 10
     const insertRun = db.prepare(`
@@ -541,6 +591,9 @@ export function seedDemo(verbose = false): DemoSeedResult {
     log(`✅ Citation history: ${WEEKS} weekly runs seeded with a realistic upward trend (15% → 68% mention rate)`)
   } else {
     log('ℹ️  Citation history already present — skipped')
+  }
+  } catch (e: any) {
+    log(`⚠️  Citation history skipped (schema drift on this DB): ${e?.message || e}`)
   }
 
   // ─── 11. More content, spread over weeks with a realistic status mix ───────

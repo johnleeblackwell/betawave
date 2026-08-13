@@ -27,13 +27,13 @@ cp .env.example .env          # add one LLM key, or point it at Ollama
 npm start                     # http://localhost:3001
 ```
 
-Starting with an empty install and nothing to look at? Create a client, then:
+Empty install and nothing to look at? Set `SEED_DEMO=true` in `.env` before the first start, or run it any time with:
 
 ```bash
-npx tsx scripts/seed-demo.ts --client=<your-client-id> --go
+npx tsx scripts/seed-demo.ts
 ```
 
-That fills it with the same demo data as the hosted version, so you can see how each module fits together before committing your own content to it. Deterministic, and `--wipe` clears it out again.
+That builds a worked example client — content in every state, a prospect pipeline with follow-ups actually due, weeks of AI-citation history — so each module shows what it is for. Idempotent, and you delete the client in the UI when you have seen enough.
 
 ---
 

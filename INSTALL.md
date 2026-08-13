@@ -57,11 +57,13 @@ SEED_DEMO=true      # in .env
 
 You get a worked example client — content in every state, a prospect pipeline, weeks of AI-citation history — so each module shows what it is for. Delete the client when you have seen enough, or set `SEED_DEMO=false` and start clean. It only ever runs when the database has no clients, so it cannot overwrite your own work.
 
-To populate a client you have already created, use the script instead:
+Already started without it? Run the same seeder any time:
 
 ```bash
-npx tsx scripts/seed-demo.ts --client=<client-id> --go     # --wipe clears it again
+npx tsx scripts/seed-demo.ts
 ```
+
+It is idempotent — re-running tops up anything missing rather than duplicating — and it only ever touches its own demo client, never one you created.
 
 Or skip installing altogether and [try the hosted demo](https://app.betawave.co.uk) (`demo@betawave.co.uk` / `seeitlive`).
 
