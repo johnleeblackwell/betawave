@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# awesome-selfhosted listing — PREPARED, NOT YET SUBMITTABLE
+#
+# ⚠️ ELIGIBILITY GATE: the list requires that a project "was first released more
+# than 4 months ago". This repository was created 2026-06-27, so the earliest
+# date this can be submitted is 2026-10-27. Submitting before then gets it
+# closed, and a rejected first submission is a poor introduction to maintainers
+# whose goodwill is worth more than six weeks.
+#
+# HOW TO SUBMIT (on or after 2026-10-27):
+#   1. Go to https://github.com/awesome-selfhosted/awesome-selfhosted-data
+#   2. Create software/betawave.yml with the content below (drop this header)
+#   3. Commit message: "add βWave"
+#   4. Choose "Create a new branch for this commit and start a pull request"
+#
+#   NB: pull requests go to awesome-selfhosted-DATA, never to the main
+#   awesome-selfhosted repo — that one's PR template says so explicitly.
+#
+# BEFORE SUBMITTING, confirm each of these is still true — they are the
+# maintainers' own checklist:
+#   □ actively maintained (commits in the last month)
+#   □ working installation instructions  ← verified 2026-08-13 by cloning into
+#     an empty directory and following INSTALL.md end to end
+#   □ demo_url resolves and is genuinely usable by a stranger
+#   □ not already listed
+#
+# ON depends_3rdparty: left FALSE deliberately, and it is defensible — βWave
+# can run entirely against a local model via Ollama with nothing leaving the
+# machine. It is *usually* pointed at a hosted API, but it does not depend on
+# one, and that distinction is the whole point of the project to this audience.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: βWave
+website_url: https://betawave.co.uk
+source_code_url: https://github.com/johnleeblackwell/betawave
+description: Self-hosted marketing engine — generates content in your brand voice, schedules and publishes it to your own site and social accounts, drafts every reply for human approval, and tracks whether AI assistants recommend your brand. Bring your own API keys, or run it fully offline against a local model.
+licenses:
+  - AGPL-3.0
+platforms:
+  - Nodejs
+  - Docker
+tags:
+  - Customer Relationship Management (CRM)
+  - Automation
+  - Communication - Social Networks and Forums
+demo_url: https://app.betawave.co.uk

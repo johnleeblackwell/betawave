@@ -12,6 +12,31 @@ Install it yourself and it costs nothing per month. Bring your own keys, own you
 
 ---
 
+## Try it before you install it
+
+**[▶ Open the live demo](https://app.betawave.co.uk)** — sign in with **`demo@betawave.co.uk`** / **`seeitlive`**
+
+Read-only and populated: a working pipeline, twelve weeks of AI-citation data, content in every state. Click anything you like — nothing you do changes it, and nothing sends. The data is fictional; no real person's details are in there.
+
+Then, when you want your own:
+
+```bash
+git clone https://github.com/johnleeblackwell/betawave bwave && cd bwave
+npm install
+cp .env.example .env          # add one LLM key, or point it at Ollama
+npm start                     # http://localhost:3001
+```
+
+Starting with an empty install and nothing to look at? Create a client, then:
+
+```bash
+npx tsx scripts/seed-demo.ts --client=<your-client-id> --go
+```
+
+That fills it with the same demo data as the hosted version, so you can see how each module fits together before committing your own content to it. Deterministic, and `--wipe` clears it out again.
+
+---
+
 ## What it does
 
 | Module | What you get |

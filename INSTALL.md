@@ -45,7 +45,25 @@ open http://localhost:3001
 
 If you set `APP_PASSWORD`, log in with a blank email and that password. If you left it blank, the app opens straight in.
 
-A fresh install is a genuine blank slate — no synthetic data, nothing to delete before you add your own business. If you specifically want a populated example client (e.g. to record a demo), set `SEED_DEMO=true` in `.env`.
+### Evaluating rather than committing? Seed it first
+
+A fresh install is a genuine blank slate — no synthetic data, nothing to delete before you add your own business. That is the right default for someone who came here to run their own marketing, and the wrong one if you are still deciding whether the thing is any good: an empty dashboard demonstrates nothing.
+
+So if you are having a look around, set this **before** the first start:
+
+```bash
+SEED_DEMO=true      # in .env
+```
+
+You get a worked example client — content in every state, a prospect pipeline, weeks of AI-citation history — so each module shows what it is for. Delete the client when you have seen enough, or set `SEED_DEMO=false` and start clean. It only ever runs when the database has no clients, so it cannot overwrite your own work.
+
+To populate a client you have already created, use the script instead:
+
+```bash
+npx tsx scripts/seed-demo.ts --client=<client-id> --go     # --wipe clears it again
+```
+
+Or skip installing altogether and [try the hosted demo](https://app.betawave.co.uk) (`demo@betawave.co.uk` / `seeitlive`).
 
 ---
 
