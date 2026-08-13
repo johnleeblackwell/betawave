@@ -1,5 +1,6 @@
 import { Client } from '../App.tsx'
 import { useTheme } from '../ThemeProvider.tsx'
+import GoalsTracker from './GoalsTracker.tsx'
 
 interface Props {
   clients: Client[]
@@ -32,6 +33,8 @@ export default function Dashboard({ clients, onSelectClient, onAddClient }: Prop
       </div>
 
       <div className="page-content">
+
+        <GoalsTracker />
         {/* Module overview — Produce / Reach / Respond / Measure */}
         <div className="stats-grid">
           <div className="stat-card stat-card-produce">
