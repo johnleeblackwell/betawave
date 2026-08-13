@@ -721,7 +721,14 @@ export function maybeSeedDemo(): void {
     if (String(process.env.SEED_DEMO || '').toLowerCase() !== 'true') return
     const n = (db.prepare('SELECT COUNT(*) AS c FROM clients').get() as any).c
     if (n > 0) return
-    const r = seedDemo(false)
+    // discovery: true — Reach is the most persuasive screen in the product and
+    // the one an evaluator opens first. Seeding without it produced a demo with
+    // content and citation history but ZERO contacts, so Discovery and Today's
+    // outreach were empty on exactly the install someone is judging. The flag
+    // defaults to off because seeding synthetic prospects into a real client is
+    // a mistake you make once; a first-boot demo client is the case where it is
+    // wanted.
+    const r = seedDemo(false, { discovery: true })
     console.log(`\n🌱 First run — seeded the “${r.client}” demo client ` +
       `(${r.posts} posts · ${r.queries} citation queries · ${r.competitors} rivals).`)
     console.log(`   Explore it in the app, then edit or delete it. Set SEED_DEMO=false to skip this.\n`)
