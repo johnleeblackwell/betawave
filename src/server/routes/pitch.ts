@@ -19,11 +19,18 @@
 import { Router } from 'express'
 import db from '../db.js'
 import { generate } from '../services/llm.js'
+import { leadIdFromUrl } from './leads.js'
 
 const router = Router()
 
 interface PitchBody {
   client_id?: string
+  /**
+   * The profile URL. Used to find an existing contact record, which is what
+   * decides the campaign — a person already assigned to one campaign must not
+   * be drafted for another because a caller passed a stale client_id.
+   */
+  linkedin_url?: string
   name?: string
   headline?: string
   about?: string
@@ -49,9 +56,37 @@ router.post('/', async (req, res) => {
 
   // Any client row works as the voice/LLM-config carrier; prefer the one the
   // extension is configured with, else fall back to the first available.
-  const client = (b.client_id
-    ? db.prepare(`SELECT * FROM clients WHERE id = ?`).get(b.client_id)
-    : null) || db.prepare(`SELECT * FROM clients ORDER BY created_at LIMIT 1`).get()
+  /**
+   * Which campaign is this person in?
+   *
+   * The client row carries the voice, the offer and the whole pitch strategy,
+   * so choosing the wrong one does not produce a slightly-off draft — it
+   * produces a pitch for the wrong product. Reading the caller's dropdown and,
+   * failing that, the OLDEST client on the install meant a contact assigned to
+   * one campaign got drafted for another because a dropdown in a browser had
+   * been left where it was last week.
+   *
+   * The contact's own record is the authority. The dropdown only decides for
+   * profiles we have never seen.
+   */
+  let ownerClientId: string | null = null
+  if (b.linkedin_url) {
+    const lid = leadIdFromUrl(b.linkedin_url)
+    if (lid) {
+      const owner = db.prepare(`
+        SELECT o.client_id FROM dl_contacts c
+        JOIN dl_organizations o ON o.id = c.organization_id
+        WHERE c.linkedin_url LIKE ? LIMIT 1
+      `).get(`%${lid}%`) as any
+      if (owner?.client_id) ownerClientId = owner.client_id
+    }
+  }
+
+  const client = (ownerClientId
+    ? db.prepare(`SELECT * FROM clients WHERE id = ?`).get(ownerClientId)
+    : null)
+    || (b.client_id ? db.prepare(`SELECT * FROM clients WHERE id = ?`).get(b.client_id) : null)
+    || db.prepare(`SELECT * FROM clients ORDER BY created_at LIMIT 1`).get()
   if (!client) return res.status(400).json({ error: 'no client configured on this install' })
 
   const isNote = b.format === 'note'
