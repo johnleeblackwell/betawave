@@ -49,6 +49,16 @@ That builds a worked example client — content in every state, a prospect pipel
 | **Snapshots** | Pixel-perfect PDF performance reports for clients (Puppeteer/EJS) |
 | **Settings** | BYO API keys stored encrypted at rest — override any key without restarting |
 
+### The capture extension — granted, not downloaded
+
+Discovery has a second half that isn't in this repository: a browser extension that reads the profile you are **already looking at**, drafts a message in your voice for you to approve or bin, and writes the outcome back into your pipeline. It does no automated browsing and clicks nothing on your behalf — you open a page, it reads what is on it.
+
+It is **given person-to-person, on request**, rather than published. That is deliberate. It points at LinkedIn, and something that points at LinkedIn should have a human who knows who is running it and what for — both for your account's sake and because the whole product is built around real contact rather than volume.
+
+Everything it sends to is already here and working without it: the enrichment endpoint, the context-aware drafting, and the outreach queue. The extension makes that loop fast; it does not make it possible.
+
+**Want it?** Install βWave first, then ask — [betawave.co.uk](https://betawave.co.uk). Bring a real use case and you'll get a real conversation, which is rather the point.
+
 ---
 
 ## Why self-host?
