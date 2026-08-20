@@ -32,17 +32,24 @@ own work.**
 
 | | AGPL-3.0 (free) | Commercial (paid) |
 |---|---|---|
-| Cost | £0, forever | One-time fee, perpetual |
-| Run it on your own server | ✅ | ✅ |
+| Cost | £0, forever | £799 once, or £299/month for twelve months |
+| Runs on your own server | ✅ | ✅ |
+| Your API keys, your data | ✅ | ✅ |
 | Modify it | ✅ | ✅ |
 | Must publish your modifications | **Yes, if network-served** | **No** |
 | Keep your changes confidential | ❌ | ✅ |
 | Install and configuration | Do it yourself | Done for you |
-| Support | Community, best-effort | 30 days included |
+| Support | Community, best-effort | Included |
 | Use it for client work | Only under AGPL terms | Under the Agency Licence |
 
 You may switch to the commercial licence at any time. Nothing is lost by
 starting free.
+
+**Note what is identical in both columns:** where it runs, whose keys it uses,
+and who holds the data. βWave is not a hosted service and no paid tier makes it
+one. What a monthly plan buys is the *running* of the software, never permission
+to use it — which is why the licence vests and why cancelling leaves you with a
+working system rather than an export file.
 
 ---
 
@@ -57,6 +64,28 @@ source-disclosure obligations of the AGPL**.
 
 Includes installation on your infrastructure, initial configuration, and 30 days
 of support from the install date.
+
+### Managed — £299/month, twelve-month term
+
+For businesses who want βWave running properly without running it themselves.
+Installed, configured, maintained and updated on **your own server**, with your
+own API keys. Your data never leaves your infrastructure.
+
+**The licence vests.** On completion of the twelve-month term, the Standard
+Licence described above becomes yours **permanently and at no further cost**.
+From that point you may stop paying at any time and keep:
+
+- the software, on your own server, running;
+- all content, data and configuration it holds;
+- a perpetual commercial licence to keep using and modifying it.
+
+This is the difference between owning something and renting it, and it is
+written here rather than only on the website because a promise a customer
+cannot point at is not a promise.
+
+Before the twelve months are complete the licence has not yet vested; ending
+early ends the right to use the software commercially, though the AGPL option
+remains open to you as it does to anyone.
 
 ### Agency Licence
 For **agencies, consultancies and service providers** operating βWave on behalf
