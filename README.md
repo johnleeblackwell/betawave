@@ -148,6 +148,22 @@ Neither is a catch. The software is complete on its own — the paid options are
 
 ---
 
-## License
+## Licensing — free forever, or commercial
 
-[GNU Affero General Public License v3.0](LICENSE) — free to self-host and modify. If you run a modified version as a network service, you must release your changes under the same licence.
+βWave is **dual-licensed**, and the free option is not going anywhere.
+
+**[GNU Affero General Public License v3.0](LICENSE)** — free to self-host and modify, permanently. If you modify βWave and run it as a network service, you must release your changes under the same licence.
+
+**[βWave Commercial Licence](LICENSE-COMMERCIAL.md)** — the same software, without that source-disclosure obligation, plus installation and 30 days of support. For businesses whose legal departments won't accept copyleft, and for agencies running βWave on behalf of clients.
+
+You are buying release from an obligation, not access to the code. The code stays free.
+
+| | AGPL (free) | Commercial |
+|---|---|---|
+| Run and modify it | ✅ | ✅ |
+| Must publish your modifications | Yes, if network-served | **No** |
+| Installed and configured for you | ❌ | ✅ |
+| Support | Community | 30 days included |
+| Operate it for client brands | Under AGPL terms | Under the Agency Licence |
+
+Start free and switch later if you need to — nothing is lost either way. See **[LICENSE-COMMERCIAL.md](LICENSE-COMMERCIAL.md)**.
