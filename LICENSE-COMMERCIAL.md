@@ -32,7 +32,7 @@ own work.**
 
 | | AGPL-3.0 (free) | Commercial (paid) |
 |---|---|---|
-| Cost | £0, forever | £799 once, or £299/month for twelve months |
+| Cost | $0, forever | $999 once, or $379/month for twelve months |
 | Runs on your own server | ✅ | ✅ |
 | Your API keys, your data | ✅ | ✅ |
 | Modify it | ✅ | ✅ |
@@ -65,7 +65,7 @@ source-disclosure obligations of the AGPL**.
 Includes installation on your infrastructure, initial configuration, and 30 days
 of support from the install date.
 
-### Managed — £299/month, twelve-month term
+### Managed — $379/month, twelve-month term
 
 For businesses who want βWave running properly without running it themselves.
 Installed, configured, maintained and updated on **your own server**, with your
@@ -142,6 +142,14 @@ the person who wrote it, which is worth more than a warranty from a company that
 will route you to a queue.
 
 ---
+
+## Currency
+
+Prices are quoted in **US dollars** because βWave is sold internationally.
+BWAVE LTD is a UK company and **UK and EU customers are invoiced in sterling** —
+£799 for the lifetime licence, £299/month for Managed, £599/month for the Agency
+Licence. Sterling is the canonical price; the dollar figures are pegged to it and
+reviewed when the rate moves materially. Neither is a discount on the other.
 
 ## Governing law
 
