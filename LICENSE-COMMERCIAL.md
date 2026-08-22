@@ -146,10 +146,14 @@ will route you to a queue.
 ## Currency
 
 Prices are quoted in **US dollars** because βWave is sold internationally.
-BWAVE LTD is a UK company and **UK and EU customers are invoiced in sterling** —
-£799 for the lifetime licence, £299/month for Managed, £599/month for the Agency
-Licence. Sterling is the canonical price; the dollar figures are pegged to it and
-reviewed when the rate moves materially. Neither is a discount on the other.
+BWAVE LTD is a UK company, so **UK customers are invoiced in sterling** — £799
+for the lifetime licence, £299/month for Managed, £599/month for the Agency
+Licence — and **EU customers are invoiced in euro** — €929, €349/month and
+€699/month respectively.
+
+Sterling is the canonical price. The dollar and euro figures are pegged to it and
+reviewed when the rate moves materially. None of the three is a discount on the
+others.
 
 ## Governing law
 
