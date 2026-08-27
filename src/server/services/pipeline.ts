@@ -15,17 +15,17 @@
 export type Stage =
   | 'new'
   | 'touch_1' | 'touch_2' | 'touch_3'
-  | 'replied' | 'call_booked' | 'trial'
+  | 'replied' | 'discussing' | 'call_booked' | 'trial'
   | 'won' | 'lost' | 'nurture'
 
 /** Stages that still want work. Anything else has left the queue. */
-export const ACTIVE_STAGES: Stage[] = ['new', 'touch_1', 'touch_2', 'touch_3', 'replied', 'call_booked', 'trial']
+export const ACTIVE_STAGES: Stage[] = ['new', 'touch_1', 'touch_2', 'touch_3', 'replied', 'discussing', 'call_booked', 'trial']
 
 /** Stages a human closed out — never auto-scheduled, never re-queued. */
 export const TERMINAL_STAGES: Stage[] = ['won', 'lost']
 
 export const ALL_STAGES: Stage[] = [
-  'new', 'touch_1', 'touch_2', 'touch_3', 'replied', 'call_booked', 'trial', 'won', 'lost', 'nurture',
+  'new', 'touch_1', 'touch_2', 'touch_3', 'replied', 'discussing', 'call_booked', 'trial', 'won', 'lost', 'nurture',
 ]
 
 export function isStage(s: unknown): s is Stage {
@@ -49,12 +49,31 @@ export const NURTURE_RESURFACE_DAYS = 90
 const NEXT_AFTER_TOUCH: Record<string, { stage: Stage; days: number | null }> = {
   new:     { stage: 'touch_1', days: 3 },
   touch_1: { stage: 'touch_2', days: 5 },
-  touch_2: { stage: 'touch_3', days: 7 },
-  // Sequence exhausted — but "no answer" is not "no". Come back in a quarter
-  // rather than dropping them forever.
+  /**
+   * TWO TOUCHES, THEN STOP. Measured, not assumed.
+   *
+   * Across 781 contacted people: touch 1 produced 0 replies from 393, touch 2
+   * produced all 6 from 315, and touch 3 produced 0 from 72. Every reply this
+   * business has ever received arrived at touch 2.
+   *
+   * So touch 3 is not a weaker touch, it is a worthless one — and it is the
+   * message where someone who has ignored you twice concludes you are not going
+   * to stop. That is the message that gets reported, and a spam report costs the
+   * whole account, not one contact.
+   *
+   * They go to nurture rather than lost, because no answer is still not a no.
+   */
+  touch_2: { stage: 'nurture', days: NURTURE_RESURFACE_DAYS },
+  // Kept so anyone already sitting at touch_3 from the old cadence lands
+  // somewhere sane instead of falling through to the `new` default and being
+  // pitched as a stranger.
   touch_3: { stage: 'nurture', days: NURTURE_RESURFACE_DAYS },
   // Someone already engaged: keep chasing, but on a human interval.
   replied:     { stage: 'replied',     days: 3 },
+  // A live conversation where the ball is in THEIR court — you have answered
+  // and are waiting. Chasing tomorrow reads as impatient; leaving it a week
+  // lets a warm thread cool. Four days is the interval that respects both.
+  discussing:  { stage: 'discussing',  days: 4 },
   call_booked: { stage: 'call_booked', days: 3 },
   trial:       { stage: 'trial',       days: 7 },
   // A nurtured contact you touch again goes back into the queue on the same
@@ -104,6 +123,7 @@ export const STAGE_LABEL: Record<Stage, string> = {
   touch_2: 'Touch 2 sent',
   touch_3: 'Touch 3 sent',
   replied: 'Replied',
+  discussing: 'In conversation',
   call_booked: 'Call booked',
   trial: 'Trialling',
   won: 'Won',
