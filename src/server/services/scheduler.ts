@@ -1,5 +1,7 @@
 import { v4 as uuid } from 'uuid'
 import db from '../db.js'
+import { NOT_DEMO } from './demo-guard.js'
+import { modelFor, assertWithinBudget } from './spend-guard.js'
 import { runAllSettlements, applyInactivityGates } from './commission.js'
 import { getClient, buildBlogPrompt, buildNewsletterPrompt } from './claude.js'
 import { fetchRSSItems } from './rss.js'
@@ -99,8 +101,18 @@ export function calculateNextRun(
 // --- Batch generation (non-streaming, for background jobs) ---
 
 async function generateBatch(prompt: string): Promise<string> {
+  /**
+   * This path talks to the SDK directly rather than through generate(), so
+   * neither the usage ledger nor the spend ceiling sees it automatically — and
+   * it runs unattended, polling every sixty seconds. An unwatched loop with no
+   * ceiling is exactly where a runaway bill starts, so it is guarded here
+   * explicitly.
+   */
+  assertWithinBudget()
   const response = await getClient().messages.create({
-    model: 'claude-opus-4-6',
+    // Configurable rather than pinned, so an operator can choose what their
+    // own unattended content generation costs.
+    model: modelFor('content') || 'claude-sonnet-5',
     max_tokens: 2048,
     // 'adaptive' thinking is supported by the API but not yet in SDK typedefs
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -262,8 +274,13 @@ async function sendEmail(client: ClientRow, contentId: string, title: string, bo
 
 async function processDueSchedules() {
   const now = Math.floor(Date.now() / 1000)
+  // Content generation costs real tokens, and a seeded demo tenant arrives with
+  // a schedule enabled. Anyone who opens and saves it sets next_run, and it
+  // quietly starts generating weekly against invented data.
   const due = db.prepare(`
-    SELECT * FROM schedules WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?
+    SELECT * FROM schedules
+     WHERE enabled = 1 AND next_run IS NOT NULL AND next_run <= ?
+       AND ${NOT_DEMO()}
   `).all(now) as unknown as Schedule[]
 
   for (const schedule of due) {
@@ -289,11 +306,23 @@ const CITATION_INTERVAL_S = 7 * 24 * 60 * 60
 async function processDueCitationRuns() {
   const now = Math.floor(Date.now() / 1000)
 
+  /**
+   * A demo tenant must not spend money.
+   *
+   * A seeded example brand is scheduled like any real one, so every week it
+   * fires a live call at each engine asking whether anyone mentions an invented
+   * business. On the instance where this was found that was several pounds of
+   * genuinely wasted spend before anyone noticed — and it also broke the demo
+   * it was meant to populate, because a brand-new brand is mentioned by nothing
+   * and the headline visibility figure read 0%.
+   */
   const dueBrands = db.prepare(`
-    SELECT id, client_id, name, next_run_at
-    FROM tracked_brands
-    WHERE status = 'active'
-      AND (next_run_at IS NOT NULL AND next_run_at <= ?)
+    SELECT b.id, b.client_id, b.name, b.next_run_at
+    FROM tracked_brands b
+    JOIN clients c ON c.id = b.client_id
+    WHERE b.status = 'active'
+      AND COALESCE(c.is_demo, 0) = 0
+      AND (b.next_run_at IS NOT NULL AND b.next_run_at <= ?)
   `).all(now) as Array<{ id: string; client_id: string; name: string; next_run_at: number }>
 
   if (dueBrands.length === 0) return

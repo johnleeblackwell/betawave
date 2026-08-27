@@ -926,6 +926,18 @@ const ensureCol = (table: string, col: string, ddl: string) => {
   const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map(c => c.name)
   if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`)
 }
+/**
+ * Is this tenant made of invented data?
+ *
+ * A seeded demonstration client looks exactly like a real one from inside the
+ * app, and the scheduler treats it like one — so it will generate content,
+ * run citation checks against live engines and attempt to publish to handles
+ * nobody owns, all of which costs money and none of which anyone asked for.
+ *
+ * Flagging the CLIENT rather than checking for credentials means the guarantee
+ * does not rest on somebody remembering to leave a token blank in seed data.
+ */
+ensureCol('clients',              'is_demo',   `INTEGER NOT NULL DEFAULT 0`)
 ensureCol('verticals',            'client_id', `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_organizations',     'client_id', `TEXT NOT NULL DEFAULT ''`)
 ensureCol('dl_prospects',         'client_id', `TEXT NOT NULL DEFAULT ''`)

@@ -200,7 +200,29 @@ the message text here, on its own lines
     }
 
     let pitch = String(parsed.pitch || '').trim()
-    if (pitch.length > limit + 80) pitch = pitch.slice(0, limit).replace(/\s+\S*$/, '') + '…'
+
+    /**
+     * NEVER CHOP MID-SENTENCE. This line used to read:
+     *
+     *   if (pitch.length > limit + 80) pitch = pitch.slice(0, limit)...+ '…'
+     *
+     * which guillotined the message at a character count. The ask is ALWAYS
+     * the last line, so the cut landed on exactly the part that asks for the
+     * meeting, and what reached the recipient was a description of the product
+     * ending in an ellipsis. Eleven real messages went out that way before
+     * anyone noticed; six had a concrete meeting request deleted.
+     *
+     * A message with its call to action amputated is not a shorter message, it
+     * is a wasted one. Over-length now trims to the last COMPLETE sentence, so
+     * whatever ships is at least a finished thought.
+     */
+    if (pitch.length > limit + 80) {
+      const cut = pitch.slice(0, limit + 80)
+      const lastStop = Math.max(
+        cut.lastIndexOf('. '), cut.lastIndexOf('? '), cut.lastIndexOf('! '),
+        cut.lastIndexOf('.\n'), cut.lastIndexOf('?\n'), cut.lastIndexOf('!\n'))
+      pitch = lastStop > limit * 0.4 ? cut.slice(0, lastStop + 1).trim() : pitch
+    }
 
     res.json({
       classification: parsed.classification || 'prospect',
