@@ -135,6 +135,41 @@ cd betawave
 
 ---
 
+## What you're taking on
+
+βWave is provided **as is, with no warranty of any kind** — see sections 15 and 16 of
+the [AGPL](LICENSE). That's the standard licence language; here is what it means for
+this particular piece of software, in plain English, because two of the risks are not
+the ones a licence normally has in mind.
+
+**It spends your money.** βWave calls AI providers using API keys you supply, and
+several jobs run unattended on a timer. There are daily and monthly ceilings — set
+`LLM_DAILY_LIMIT_GBP` and `LLM_MONTHLY_LIMIT_GBP` in your `.env` — and they stop the
+work rather than silently switching you to a cheaper model. **Set them before you
+connect a key.** They default to conservative values, not to unlimited, but the bill is
+yours either way.
+
+**It publishes in your name.** Connect a social account and βWave can post to it on a
+schedule. Every reply to a real person is drafted and waits for approval, and nothing
+publishes without a destination you configured yourself — but you are responsible for
+what goes out under your brand, including anything a language model wrote.
+
+**Your data is yours, and so is the duty of care.** Nothing is sent to us; there is no
+telemetry and no phone-home. If you put contacts or customer information into your
+instance, you are the data controller for it under GDPR and equivalent law. Your
+backups, your access control, your obligations.
+
+**Nobody is on call.** This is open-source software maintained by one person. Bugs get
+fixed when they get fixed. If you need someone accountable when it breaks at 11pm,
+that's what the commercial support option is for — and it is a genuinely different
+thing from the free licence, not a better version of it.
+
+None of the above is a reason not to run it. It is the same deal as any self-hosted
+system: you get complete control, and complete control is also complete
+responsibility.
+
+---
+
 ## Who builds βWave
 
 βWave is built by John Blackwell, who has spent 20+ years in search — building websites in the late '90s, technical SEO through the 2000s, and now generative / AI search. The through-line is the same across every generation of the channel: helping businesses get found.
