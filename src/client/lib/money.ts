@@ -60,3 +60,25 @@ export function fmtCost (gbp: number): string {
   const v = fromGbp(gbp)
   return `${CURRENCY_SYMBOL}${v < 0.01 ? v.toFixed(4) : v.toFixed(3)}`
 }
+
+/**
+ * A price the merchant typed, shown with the symbol and NOT converted.
+ *
+ * This is the one place where converting would be wrong, and the distinction is
+ * worth being explicit about because the column is called `price_gbp` and looks
+ * exactly like the ones above.
+ *
+ * An API cost is a real quantity of money that happens to be recorded in
+ * sterling — converting it to dollars tells a US reader the same truth in
+ * their own units. A shop price is not that. It is a number a business chose:
+ * a $50 gift card is fifty dollars because someone decided to sell a fifty,
+ * and a £50 one is fifty pounds for the same reason. Running either through an
+ * exchange rate produces $63.29 — a denomination nobody sells, on a card
+ * nobody printed, priced by a rate that was never part of the decision.
+ *
+ * So the shop shows the number as entered, in whatever currency the instance
+ * speaks. Each install sells in its own money, which is what a shop does.
+ */
+export function fmtPrice (v: number, dp = 2): string {
+  return `${CURRENCY_SYMBOL}${Number(v).toFixed(dp)}`
+}

@@ -1205,6 +1205,81 @@ if (!purchaseCols.includes('fulfilled_at')) {
   db.exec(`ALTER TABLE shop_purchases ADD COLUMN fulfilled_at INTEGER`)
 }
 
+/**
+ * Drop a stale NOT NULL from a column on databases that predate a change.
+ *
+ * Two columns in the shop needed this and the cause was identical, so it is a
+ * helper rather than two hand-rolled rebuilds. Both tables began life as
+ * gift-card-only — `gift_card_skus` and `gift_card_purchases` — where a face
+ * value and a redemption code were rightly mandatory, because every row WAS a
+ * gift card. Generalising the shop to sell services and subscriptions made both
+ * columns gift-card-only, and routes/shop.ts duly writes NULL for every other
+ * product type.
+ *
+ * But CREATE TABLE only ever runs on a fresh install. On an upgraded database
+ * the old NOT NULL survived, so:
+ *
+ *   - creating a subscription or service product 500'd on the constraint, and
+ *   - worse, a customer could pay for one through Stripe and the webhook would
+ *     throw before recording the purchase — money taken, nothing written down.
+ *
+ * Both worked perfectly on any install new enough to have been built from the
+ * current schema, which is the worst shape a drift can take: invisible to
+ * whoever wrote it, reproducible only for the people running it longest.
+ *
+ * SQLite cannot drop a NOT NULL in place, so this is the documented table
+ * rebuild, driven off the table's own stored DDL so it cannot fall out of step
+ * with the schema above. foreign_keys is suspended around it because these
+ * tables reference each other; the pragma cannot change inside a transaction,
+ * which fixes the ordering.
+ */
+function relaxNotNull (table: string, column: string) {
+  const col = (db.prepare(`PRAGMA table_info(${table})`).all() as any[]).find(c => c.name === column)
+  if (!col?.notnull) return
+
+  const ddl = (db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`)
+    .get(table) as any)?.sql as string | undefined
+  if (!ddl) return
+
+  // Strip NOT NULL from this column's definition only, leaving every other
+  // constraint — including other columns' NOT NULLs — exactly as it was.
+  const relaxed = ddl.replace(
+    // Double backslashes: this is a template literal, where `\s` would collapse
+    // to a plain "s" before the RegExp ever saw it.
+    new RegExp(`(^\\s*"?${column}"?\\s+\\w+(?:\\([^)]*\\))?[^,\\n]*?)\\s+NOT\\s+NULL`, 'im'),
+    '$1',
+  )
+  if (relaxed === ddl) {
+    console.warn(`[db] ${table}.${column}: could not locate NOT NULL in stored DDL — left alone`)
+    return
+  }
+  const tmp = `${table}_rebuild`
+  const createTmp = relaxed.replace(
+    new RegExp(`CREATE TABLE (IF NOT EXISTS )?"?${table}"?`, 'i'), `CREATE TABLE ${tmp}`)
+
+  const cols = (db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map(c => `"${c.name}"`).join(', ')
+  const fkWasOn = (db.prepare('PRAGMA foreign_keys').get() as any)?.foreign_keys === 1
+  if (fkWasOn) db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    db.exec('BEGIN')
+    db.exec(createTmp)
+    db.exec(`INSERT INTO ${tmp} (${cols}) SELECT ${cols} FROM ${table}`)
+    db.exec(`DROP TABLE ${table}`)
+    db.exec(`ALTER TABLE ${tmp} RENAME TO ${table}`)
+    db.exec('COMMIT')
+    console.log(`[db] ${table}.${column} relaxed to nullable`)
+  } catch (e: any) {
+    try { db.exec('ROLLBACK') } catch { /* nothing open */ }
+    try { db.exec(`DROP TABLE IF EXISTS ${tmp}`) } catch { /* best effort */ }
+    console.warn(`[db] ${table}.${column} rebuild skipped: ${e?.message || e}`)
+  } finally {
+    if (fkWasOn) db.exec('PRAGMA foreign_keys = ON')
+  }
+}
+
+relaxNotNull('shop_skus', 'denomination')
+relaxNotNull('shop_purchases', 'redemption_code')
+
 // Indexes — re-declare on shop_* names, idempotent
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_shop_skus_client      ON shop_skus(client_id, product_type, active);

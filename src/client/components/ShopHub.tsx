@@ -1,3 +1,4 @@
+import { fmtPrice, CURRENCY_SYMBOL } from '../lib/money'
 import { useState, useEffect, useCallback } from 'react'
 import { Client, useToast } from '../App.tsx'
 
@@ -63,8 +64,8 @@ function fmtDate(ts: number) {
 
 function formatPrice(s: Sku | Purchase): string {
   const gbp = (s as any).denomination ?? (s as any).price_gbp ?? (s as any).amount ?? 0
-  if ((s as any).billing_interval) return `£${Number(gbp).toFixed(2)} / ${(s as any).billing_interval}`
-  return `£${Number(gbp).toFixed(2)}`
+  if ((s as any).billing_interval) return `${fmtPrice(gbp)} / ${(s as any).billing_interval}`
+  return fmtPrice(gbp)
 }
 
 export default function ShopHub({ clientId, client }: Props) {
@@ -128,7 +129,7 @@ export default function ShopHub({ clientId, client }: Props) {
     setRedeemLoading(false)
 
     if (res.ok) {
-      showToast(`Redeemed £${redeemValue} — £${data.remaining_balance.toFixed(2)} remaining`)
+      showToast(`Redeemed ${fmtPrice(Number(redeemValue))} — ${fmtPrice(data.remaining_balance)} remaining`)
       setRedeemCode(''); setRedeemValue(''); setRedeemBy(''); setCheckResult(null)
       load()
     } else {
@@ -168,9 +169,9 @@ export default function ShopHub({ clientId, client }: Props) {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: '💰 Total Revenue', value: `£${totalRevenue.toFixed(2)}`, colour: '#16a34a' },
+          { label: '💰 Total Revenue', value: fmtPrice(totalRevenue), colour: '#16a34a' },
           { label: '🎫 Active / Paid',  value: activeCount, colour: '#0f172a' },
-          { label: '✅ Redeemed Value', value: `£${totalRedeemed.toFixed(2)}`, colour: '#6366f1' },
+          { label: '✅ Redeemed Value', value: fmtPrice(totalRedeemed), colour: '#6366f1' },
           { label: '📦 SKUs',           value: skus.filter(s => s.active).length, colour: '#d97706' },
         ].map(s => (
           <div key={s.label} className="card" style={{ padding: '14px 16px' }}>
@@ -268,7 +269,7 @@ export default function ShopHub({ clientId, client }: Props) {
                         <td style={{ padding: '10px 14px' }}>{TYPE_LABEL[p.product_type].icon}</td>
                         <td style={{ padding: '10px 14px' }}>{p.sku_label}</td>
                         <td style={{ padding: '10px 14px', color: '#64748b' }}>{p.buyer_email}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>£{p.amount.toFixed(2)}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600 }}>{fmtPrice(p.amount)}</td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 10, fontWeight: 600,
                             background: (STATUS_COLOURS[p.status] || '#94a3b8') + '22', color: STATUS_COLOURS[p.status] || '#475569' }}>
@@ -322,8 +323,8 @@ export default function ShopHub({ clientId, client }: Props) {
                   ? <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '14px', marginBottom: 16 }}>
                       <div style={{ fontWeight: 700, color: '#16a34a', marginBottom: 8 }}>✅ Valid gift card</div>
                       <div style={{ fontSize: '0.875rem', color: '#374151' }}>
-                        Original: <strong>£{checkResult.original_amount.toFixed(2)}</strong> &nbsp;·&nbsp;
-                        Remaining: <strong style={{ color: '#16a34a' }}>£{checkResult.remaining_balance.toFixed(2)}</strong>
+                        Original: <strong>{fmtPrice(checkResult.original_amount)}</strong> &nbsp;·&nbsp;
+                        Remaining: <strong style={{ color: '#16a34a' }}>{fmtPrice(checkResult.remaining_balance)}</strong>
                       </div>
                     </div>
                   : <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '12px', color: '#92400e', marginBottom: 16 }}>
@@ -334,7 +335,7 @@ export default function ShopHub({ clientId, client }: Props) {
             {checkResult?.valid && (
               <>
                 <div className="form-group">
-                  <label className="form-label">Amount to redeem (£)</label>
+                  <label className="form-label">Amount to redeem ({CURRENCY_SYMBOL})</label>
                   <input className="form-input" type="number" min="0.01" step="0.01"
                     max={checkResult.remaining_balance} value={redeemValue}
                     onChange={e => setRedeemValue(e.target.value)} placeholder="0.00" />
@@ -446,13 +447,13 @@ function AddSkuForm({ clientId, onSaved }: { clientId: string; onSaved: () => vo
             <label className="form-label">Label *</label>
             <input className="form-input" value={label} onChange={e => setLabel(e.target.value)}
               placeholder={
-                type === 'gift_card' ? '£50 Gift Card' :
+                type === 'gift_card' ? CURRENCY_SYMBOL + '50 Gift Card' :
                 type === 'service' ? 'Discovery Layer Build' :
                 type === 'subscription' ? 'Pro plan' : 'Branded T-shirt'
               } />
           </div>
           <div>
-            <label className="form-label">{type === 'gift_card' ? 'Denomination (£)' : 'Price (£)'} *</label>
+            <label className="form-label">{type === 'gift_card' ? 'Denomination' : 'Price'} ({CURRENCY_SYMBOL}) *</label>
             {type === 'gift_card' ? (
               <input className="form-input" type="number" min="1" value={denomination}
                 onChange={e => setDenomination(e.target.value)} placeholder="50" />
