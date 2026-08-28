@@ -21,7 +21,7 @@
  *
  * This matters most for the people John will never meet. An affiliate cannot
  * be on the call, and a prospect exploring alone will not infer that Respond
- * replaces Sprout Social at £199/month. Somebody has to say it, every time,
+ * replaces Sprout Social at $199/month. Somebody has to say it, every time,
  * in the room where they are.
  */
 import { useState } from 'react'
@@ -44,37 +44,37 @@ export const SERVICE_GUIDE: Record<string, Guide> = {
   overview: {
     title: 'Overview',
     purpose: 'What this instance has actually produced, published and answered — the receipt, not a dashboard. Everything below runs whether anyone logs in or not.',
-    replaces: [{ name: 'HubSpot Marketing Hub', price: 'from £700/mo' }],
+    replaces: [{ name: 'HubSpot Marketing Hub', price: 'from $800/mo' }],
     next: { tab: 'sources', label: 'Sources — where the material comes from' },
   },
   sources: {
     title: 'Sources',
     purpose: 'Everything βWave writes starts from material you already own — your blog, your podcast, your competitors\' feeds, your own back catalogue. Point it at the well once; it draws from it forever.',
-    replaces: [{ name: 'Feedly Pro', price: 'from £8/mo' }, { name: 'Zapier RSS', price: 'from £20/mo' }],
+    replaces: [{ name: 'Feedly Pro', price: 'from $8/mo' }, { name: 'Zapier RSS', price: 'from $20/mo' }],
     next: { tab: 'generate', label: 'Generate — turn it into publishable work' },
   },
   generate: {
     title: 'Generate',
     purpose: 'Blogs, newsletters and social posts written in your voice from your sources. Not a blank prompt box — it already knows the brand, the audience and the tone, because you told it once.',
-    replaces: [{ name: 'Jasper', price: 'from £39/mo' }, { name: 'Copy.ai', price: 'from £36/mo' }],
+    replaces: [{ name: 'Jasper', price: 'from $39/mo' }, { name: 'Copy.ai', price: 'from $36/mo' }],
     next: { tab: 'content', label: 'Content — everything it has produced' },
   },
   content: {
     title: 'Content',
     purpose: 'The library. Every piece produced, its status, and what it was built from. Nothing here has gone anywhere until you say so.',
-    replaces: [{ name: 'Notion / Airtable calendars', price: 'from £8/user/mo' }],
+    replaces: [{ name: 'Notion / Airtable calendars', price: 'from $8/user/mo' }],
     next: { tab: 'social', label: 'Social — the short-form version' },
   },
   social: {
     title: 'Social',
     purpose: 'Long-form work atomised into posts per channel, each written for that channel rather than copy-pasted across all of them.',
-    replaces: [{ name: 'Buffer', price: 'from £5/channel/mo' }, { name: 'Later', price: 'from £25/mo' }],
+    replaces: [{ name: 'Buffer', price: 'from $5/channel/mo' }, { name: 'Later', price: 'from $25/mo' }],
     next: { tab: 'syndicate', label: 'Syndicate — getting it out' },
   },
   syndicate: {
     title: 'Syndicate',
     purpose: 'One piece of work, routed to every destination on a schedule, with per-channel throttles so you never carpet-bomb the same audience. Runs unattended.',
-    replaces: [{ name: 'Hootsuite', price: 'from £99/mo' }, { name: 'Zapier', price: 'from £20/mo' }],
+    replaces: [{ name: 'Hootsuite', price: 'from $99/mo' }, { name: 'Zapier', price: 'from $20/mo' }],
     next: { tab: 'schedule', label: 'Schedule — when it all happens' },
   },
   schedule: {
@@ -86,37 +86,37 @@ export const SERVICE_GUIDE: Record<string, Guide> = {
   site: {
     title: 'Site',
     purpose: 'A fast static site you own, published to your own domain. The one destination no platform can take away from you, and the only one that still exists if X or LinkedIn change their minds.',
-    replaces: [{ name: 'WordPress hosting + plugins', price: 'from £25/mo' }, { name: 'Webflow', price: 'from £18/mo' }],
+    replaces: [{ name: 'WordPress hosting + plugins', price: 'from $25/mo' }, { name: 'Webflow', price: 'from $18/mo' }],
     next: { tab: 'reports', label: 'Reports — something worth an email address' },
   },
   reports: {
     title: 'Reports',
     purpose: 'Niche lead-magnet reports, each with its own landing page. The thing people hand over an email address for.',
-    replaces: [{ name: 'Leadpages', price: 'from £37/mo' }, { name: 'Instapage', price: 'from £79/mo' }],
+    replaces: [{ name: 'Leadpages', price: 'from $37/mo' }, { name: 'Instapage', price: 'from $79/mo' }],
     next: { tab: 'discovery', label: 'Discovery — who to talk to' },
   },
   discovery: {
     title: 'Discovery',
     purpose: 'Find the businesses worth approaching, the people inside them, and the reason to make contact. Then work the list one day at a time, ordered by who can actually say yes.',
-    replaces: [{ name: 'Apollo', price: 'from £39/mo' }, { name: 'Sales Navigator', price: 'from £70/mo' }, { name: 'Lemlist', price: 'from £29/mo' }],
+    replaces: [{ name: 'Apollo', price: 'from $39/mo' }, { name: 'Sales Navigator', price: 'from $99/mo' }, { name: 'Lemlist', price: 'from $29/mo' }],
     next: { tab: 'respond', label: 'Respond — what comes back' },
   },
   respond: {
     title: 'Respond',
     purpose: 'Every mention, comment and reply in one place with an answer already drafted, waiting on a human. Nothing addressed to a real person goes out before someone has read it.',
-    replaces: [{ name: 'Sprout Social', price: 'from £199/mo' }, { name: 'Agorapulse', price: 'from £69/mo' }],
+    replaces: [{ name: 'Sprout Social', price: 'from $199/mo' }, { name: 'Agorapulse', price: 'from $69/mo' }],
     next: { tab: 'citation', label: 'Measure — whether any of it worked' },
   },
   citation: {
     title: 'Measure',
     purpose: 'Whether the work is landing — asked of the assistants people actually use, and read from your own first-party numbers rather than a third party\'s estimate.',
-    replaces: [{ name: 'Semrush', price: 'from £99/mo' }, { name: 'Ahrefs', price: 'from £99/mo' }],
+    replaces: [{ name: 'Semrush', price: 'from $99/mo' }, { name: 'Ahrefs', price: 'from $99/mo' }],
     next: { tab: 'gsc', label: 'Search Console — your own numbers' },
   },
   gsc: {
     title: 'Search Console',
     purpose: 'Your real impressions and clicks, straight from Google, from your own account. Not scraped, not modelled, not somebody\'s index.',
-    replaces: [{ name: 'Rank-tracking seats', price: 'from £49/mo' }],
+    replaces: [{ name: 'Rank-tracking seats', price: 'from $49/mo' }],
     // The last stop is the assistant, not a lap back to Overview — see the
     // note on `assistant` below.
     next: { tab: '__assistant', label: 'The assistant — the part nobody else has' },
@@ -147,7 +147,7 @@ export function stackTotal(): number {
     for (const r of g.replaces) {
       if (seen.has(r.name)) continue
       seen.add(r.name)
-      const m = r.price.match(/£([\d,]+)/)
+      const m = r.price.match(/\$([\d,]+)/)
       if (m) total += Number(m[1].replace(/,/g, ''))
     }
   }

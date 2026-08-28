@@ -1,3 +1,4 @@
+import { fmtMoney, fmtCost, CURRENCY_SYMBOL } from '../lib/money'
 import { useState, useEffect, useRef } from 'react'
 import { useToast } from '../App.tsx'
 import CitationChart from './CitationChart.tsx'
@@ -485,7 +486,7 @@ export default function CitationHub({ clientId, clientName = '', clientDomain = 
               <li>Classifies each response: mentioned? where? positive/negative?</li>
               <li>Tracks competitor mentions in the same answers</li>
               <li>Generates a weekly Citation Health HTML report</li>
-              <li>Budget cap: £30/week default (adjustable in Settings)</li>
+              <li>Budget cap: {fmtMoney(30, 0)}/week default (adjustable in Settings)</li>
             </ul>
           </div>
         </div>
@@ -561,7 +562,7 @@ export default function CitationHub({ clientId, clientName = '', clientDomain = 
               <StatCard label="Total Runs" value={String(runs.length)} sub="all time" accent="#4f46e5" />
               <StatCard
                 label="Last Cost"
-                value={latestRun ? `£${latestRun.cost_gbp.toFixed(3)}` : '—'}
+                value={latestRun ? fmtMoney(latestRun.cost_gbp, 3) : '—'}
                 sub={latestRun ? runStatusLabel(latestRun.status) : 'no runs yet'}
                 accent="#4f46e5"
               />
@@ -579,7 +580,7 @@ export default function CitationHub({ clientId, clientName = '', clientDomain = 
                     <div><div style={{ color: '#64748b', fontSize: '0.75rem' }}>Date</div><div style={{ fontWeight: 600 }}>{fmtDate(latestRun.run_at)}</div></div>
                     <div><div style={{ color: '#64748b', fontSize: '0.75rem' }}>Completed</div><div style={{ fontWeight: 600 }}>{latestRun.completed} / {latestRun.total_calls}</div></div>
                     <div><div style={{ color: '#64748b', fontSize: '0.75rem' }}>Failed</div><div style={{ fontWeight: 600, color: latestRun.failed > 0 ? '#dc2626' : '#64748b' }}>{latestRun.failed}</div></div>
-                    <div><div style={{ color: '#64748b', fontSize: '0.75rem' }}>Cost</div><div style={{ fontWeight: 600 }}>£{latestRun.cost_gbp.toFixed(4)}</div></div>
+                    <div><div style={{ color: '#64748b', fontSize: '0.75rem' }}>Cost</div><div style={{ fontWeight: 600 }}>{fmtMoney(latestRun.cost_gbp, 4)}</div></div>
                   </div>
                   {latestRun.notes && <div style={{ marginTop: 12, fontSize: '0.78rem', color: '#92400e', background: '#fef3c7', padding: '6px 10px', borderRadius: 6 }}>{latestRun.notes}</div>}
                   <button className="btn btn-ghost btn-sm" style={{ marginTop: 12, paddingLeft: 0, color: '#4f46e5' }} onClick={() => { setSubTab('runs'); toggleExpandRun(latestRun.id) }}>
@@ -906,7 +907,7 @@ export default function CitationHub({ clientId, clientName = '', clientDomain = 
                         <div style={{ fontSize: '0.78rem', color: '#64748b', marginTop: 3, display: 'flex', gap: 12 }}>
                           <span>{run.completed}/{run.total_calls} completed</span>
                           {run.failed > 0 && <span style={{ color: '#dc2626' }}>{run.failed} failed</span>}
-                          <span>£{run.cost_gbp.toFixed(4)}</span>
+                          <span>{fmtMoney(run.cost_gbp, 4)}</span>
                           {JSON.parse(run.engines_json || '[]').length > 0 && (
                             <span>Engines: {JSON.parse(run.engines_json).join(', ')}</span>
                           )}
@@ -1063,7 +1064,7 @@ export default function CitationHub({ clientId, clientName = '', clientDomain = 
               <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a', marginBottom: 20 }}>Citation Tracker settings</div>
 
               <div className="form-group">
-                <label className="form-label">Weekly budget cap (£)</label>
+                <label className="form-label">Weekly budget cap ({CURRENCY_SYMBOL})</label>
                 <input
                   className="form-input"
                   type="number"
@@ -1183,7 +1184,7 @@ function ResultsTable({ results }: { results: CitationResult[] }) {
                     <td style={{ padding: '5px 8px', color: '#64748b' }}>{r.brand_position ?? <span style={{ color: '#94a3b8' }}>–</span>}</td>
                     <td style={{ padding: '5px 8px', color: '#64748b' }}>{r.sentiment ?? <span style={{ color: '#94a3b8' }}>–</span>}</td>
                     <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{r.input_tokens + r.output_tokens || '–'}</td>
-                    <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{r.cost_gbp > 0 ? `£${r.cost_gbp.toFixed(4)}` : '–'}</td>
+                    <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{r.cost_gbp > 0 ? fmtMoney(r.cost_gbp, 4) : '–'}</td>
                     <td style={{ padding: '5px 8px' }}>
                       {r.raw_response && (
                         <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: '0.7rem', color: '#4f46e5' }}

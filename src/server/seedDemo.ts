@@ -43,7 +43,7 @@ export function seedDemo(verbose = false, opts: { discovery?: boolean } = {}): D
     tone_of_voice: 'confident, plain-spoken, anti-hype, builder-to-builder; owns its opinions',
     target_audience:
       'Small businesses, agencies, and indie founders tired of renting ten SaaS subscriptions. ' +
-      'Comfortable on a command line, value privacy and ownership, want their marketing done without a £3k/mo agency.',
+      'Comfortable on a command line, value privacy and ownership, want their marketing done without a $4k/mo agency.',
     style_notes:
       'βWave is the marketing engine you install and OWN — content, publishing, social syndication and ' +
       'AI-citation tracking in one place, on your own server, with your own API keys. ' +
@@ -170,9 +170,9 @@ export function seedDemo(verbose = false, opts: { discovery?: boolean } = {}): D
     },
     {
       title: 'Fire the agency. Meet your autonomous marketing team.',
-      excerpt: 'βWave isn’t a dashboard to babysit — it’s the team, minus the £3k/month invoice.',
+      excerpt: 'βWave isn’t a dashboard to babysit — it’s the team, minus the $4k/month invoice.',
       body:
-        'The £3,000-a-month agency and the marketing hire you can’t afford do the same handful of jobs: produce content, ' +
+        'The $4,000-a-month agency and the marketing hire you can’t afford do the same handful of jobs: produce content, ' +
         'publish it, engage, and report. βWave does those jobs as one loop, every day, with you approving anything that ' +
         'goes live.\n\nNo Zapier spaghetti, no ten logins, no per-seat tax. Just the work — done, on your own stack.',
       image_query: 'marketing team automation',
@@ -604,7 +604,7 @@ export function seedDemo(verbose = false, opts: { discovery?: boolean } = {}): D
     { title: 'AI-citation tracking: our first month of data', status: 'published',
       excerpt: 'What we found watching ChatGPT, Claude, Gemini and Perplexity for a month.',
       body: 'Mention rate moved from roughly 1 in 7 queries to over half within ten weeks — not from buying ads, but from consistently publishing content the engines could actually cite.' },
-    { title: 'The real cost of a £3k/month marketing agency, broken down', status: 'published',
+    { title: 'The real cost of a $4k/month marketing agency, broken down', status: 'published',
       excerpt: 'Where that retainer actually goes, and what it would take to replace it.',
       body: 'Strip out the account management overhead and most retainers are paying for maybe 15 hours a week of actual production work — work a well-configured engine can do continuously.' },
     { title: 'Why we chose AGPL-3.0 for βWave', excerpt: 'Open source, but not a target for SaaS resellers who never contribute back.', status: 'draft',

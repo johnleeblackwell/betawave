@@ -1,3 +1,4 @@
+import { fmtMoney, fmtCost, CURRENCY_SYMBOL } from '../lib/money'
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../App.tsx'
 
@@ -241,9 +242,9 @@ export default function AffiliatesHub() {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
           {[
-            { label: 'Lifetime Paid', value: `£${lgPaid.toFixed(2)}`, colour: '#16a34a' },
-            { label: 'Pending', value: `£${lgPending.toFixed(2)}`, colour: '#d97706' },
-            { label: 'Suspended', value: `£${lgSuspended.toFixed(2)}`, colour: '#dc2626' },
+            { label: 'Lifetime Paid', value: fmtMoney(lgPaid, 2), colour: '#16a34a' },
+            { label: 'Pending', value: fmtMoney(lgPending, 2), colour: '#d97706' },
+            { label: 'Suspended', value: fmtMoney(lgSuspended, 2), colour: '#dc2626' },
             { label: 'Last Sale', value: days !== null ? `${days}d ago` : 'Never', colour: inactive ? '#dc2626' : '#0f172a' },
           ].map(s => (
             <div key={s.label} className="card" style={{ padding: '14px 16px' }}>
@@ -322,7 +323,7 @@ export default function AffiliatesHub() {
                         <td style={{ padding: '8px 12px' }}>{c.month}</td>
                         <td style={{ padding: '8px 12px' }}>{c.commission_type === 'first_20' ? '20% First' : '10% Recurring'}</td>
                         <td style={{ padding: '8px 12px' }}>{c.client_name}</td>
-                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>£{c.amount.toFixed(2)}</td>
+                        <td style={{ padding: '8px 12px', fontWeight: 600 }}>{fmtMoney(c.amount, 2)}</td>
                         <td style={{ padding: '8px 12px' }}>
                           <span style={{ fontSize: '0.75rem', padding: '2px 8px', borderRadius: 10, fontWeight: 600,
                             background: COMMISSION_STATUS_COLOURS[c.status] + '22', color: COMMISSION_STATUS_COLOURS[c.status] }}>
@@ -362,9 +363,9 @@ export default function AffiliatesHub() {
       {/* Commission summary */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: '💰 Total Paid', value: `£${totalPaid.toFixed(2)}`, colour: '#16a34a' },
-          { label: '⏳ Pending', value: `£${totalPending.toFixed(2)}`, colour: '#d97706' },
-          { label: '🔴 Suspended', value: `£${totalSuspended.toFixed(2)}`, colour: '#dc2626' },
+          { label: '💰 Total Paid', value: fmtMoney(totalPaid, 2), colour: '#16a34a' },
+          { label: '⏳ Pending', value: fmtMoney(totalPending, 2), colour: '#d97706' },
+          { label: '🔴 Suspended', value: fmtMoney(totalSuspended, 2), colour: '#dc2626' },
           { label: '👥 Lead Gens', value: leadGens.length, colour: '#0f172a' },
         ].map(s => (
           <div key={s.label} className="card" style={{ padding: '14px 16px' }}>

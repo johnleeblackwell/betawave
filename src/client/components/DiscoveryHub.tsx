@@ -1,3 +1,4 @@
+import { fmtMoney, fmtCost, CURRENCY_SYMBOL } from '../lib/money'
 import { useState, useEffect, useCallback } from 'react'
 import { useToast } from '../App.tsx'
 
@@ -363,7 +364,7 @@ function SettingsView({ clientId, onBack }: { clientId: string; onBack: () => vo
                 onChange={e => setClient({ ...client, discovery_whatsapp_number: e.target.value })} />
             </div>
             <div className="form-group">
-              <label className="form-label">Daily citation-probe budget (£)</label>
+              <label className="form-label">Daily citation-probe budget ({CURRENCY_SYMBOL})</label>
               <input className="form-input" type="number" step="0.10" min="0" max="50"
                 value={client.daily_citation_budget_gbp ?? '1.00'}
                 onChange={e => setClient({ ...client, daily_citation_budget_gbp: e.target.value })} />
@@ -423,7 +424,7 @@ function SettingsView({ clientId, onBack }: { clientId: string; onBack: () => vo
                   <>
                     <strong>✅ Connected</strong> · {pingResult.latency_ms}ms<br />
                     <span style={{ color: '#64748b' }}>
-                      {pingResult.result?.provider} / {pingResult.result?.model} · {pingResult.result?.tokens_in}+{pingResult.result?.tokens_out} tok · £{pingResult.result?.cost_gbp.toFixed(6)}<br />
+                      {pingResult.result?.provider} / {pingResult.result?.model} · {pingResult.result?.tokens_in}+{pingResult.result?.tokens_out} tok · {fmtMoney(pingResult.result?.cost_gbp, 6)}<br />
                       Response: <em>{pingResult.result?.text}</em>
                     </span>
                   </>
