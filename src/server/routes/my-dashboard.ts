@@ -38,7 +38,8 @@ router.get('/dashboard', (req: Request, res: Response) => {
   const bg        = process.env.VITE_SIDEBAR_BG  || '#0f172a'
   const primary   = process.env.VITE_BRAND_PRIMARY || '#d97706'
 
-  res.send(dashboardPage(lg.name || lg.email, brandName, bg, primary))
+  res.send(dashboardPage(lg.name || lg.email, brandName, bg, primary,
+    process.env.VITE_DISPLAY_CURRENCY === 'GBP' ? 'GBP' : 'USD'))
 })
 
 // All remaining /my/* routes require the middleware
@@ -203,7 +204,7 @@ router.put('/credentials', (req, res) => {
 })
 
 // ─── Dashboard page HTML ──────────────────────────────────────────────────────
-function dashboardPage(displayName: string, brandName: string, bg: string, primary: string): string {
+function dashboardPage(displayName: string, brandName: string, bg: string, primary: string, currency: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -256,12 +257,30 @@ function dashboardPage(displayName: string, brandName: string, bg: string, prima
 </div>
 
 <script>
+// Injected server-side so this page and the React app speak the same currency.
+var CURRENCY = '${currency}'
+
 async function logout() {
   await fetch('/my/logout', { method: 'POST' })
   location.href = '/'
 }
 
-function fmt(n) { return '£' + Number(n || 0).toFixed(2) }
+/**
+ * Commission is stored in sterling and shown in the instance currency.
+ *
+ * Same reasoning as the React app's lib/money.ts: the stored figure is a real
+ * amount that happens to be recorded in GBP, so converting it tells a reader
+ * the same truth in their own units. This page matters more than most — it is
+ * where a lead generator goes to see what they have earned, and an agency
+ * running this outside the UK should not have to convert it in their head.
+ *
+ * Set VITE_DISPLAY_CURRENCY=GBP to keep sterling.
+ */
+function fmt(n) {
+  var v = Number(n || 0)
+  if (CURRENCY === 'GBP') return '£' + v.toFixed(2)
+  return '$' + (v / 0.79).toFixed(2)
+}
 function fmtDate(ts) {
   if (!ts) return '—'
   return new Date(ts * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
