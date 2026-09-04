@@ -33,6 +33,8 @@ function parseClient(row: any) {
 // Whitelist of fields the API accepts. Anything not in this list is ignored.
 // Keeps POST/PUT future-proof when we add new client columns.
 const WRITABLE_FIELDS = [
+  // A note shown to client-scoped sessions on their Overview. See db.ts.
+  'scoped_note',
   // Identity
   'name', 'business_name', 'industry', 'location', 'contact_email',
   'primary_domain', 'logo_url', 'geography', 'time_zone',

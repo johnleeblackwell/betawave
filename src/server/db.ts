@@ -1086,6 +1086,19 @@ if (!clientCols.includes('never_say')) {
 if (!clientCols.includes('always_say')) {
   db.exec(`ALTER TABLE clients ADD COLUMN always_say TEXT DEFAULT ''`)
 }
+if (!clientCols.includes('scoped_note')) {
+  /**
+   * A note the install owner leaves for whoever they hand a client-scoped
+   * login to.
+   *
+   * Someone given their own login lands in a workspace where some pillars are
+   * full and others are deliberately empty, with nothing distinguishing "not
+   * built" from "not connected yet" from "not yours to see". All three render
+   * as a blank panel, and most people read a blank panel as the first one.
+   * One paragraph from the person who set the workspace up settles it.
+   */
+  db.exec(`ALTER TABLE clients ADD COLUMN scoped_note TEXT DEFAULT ''`)
+}
 if (!clientCols.includes('modules_enabled')) {
   // JSON: { produce, reach, respond, measure, affiliates, shop }
   // Default = produce+reach+respond+measure ON, affiliates+shop OFF
