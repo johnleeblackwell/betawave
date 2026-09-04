@@ -114,6 +114,22 @@ CLASSIFY FIRST, then write for that case:
 
 VOICE: ${voice}. Never "I hope this finds you well", never "quick question", never flattery, never a manufactured qualifying question. Sound like a competent human who read their profile, not a template.
 
+THE COMPREHENSION FLOOR — this outranks every rule below it. A reader who cannot
+tell what is being offered is not intrigued, they are confused, and confused
+readers do not reply, they scroll:
+- After ONE read the recipient must be able to say what KIND of thing this is.
+  Not the price, not the mechanism, not why it beats the alternative — just the
+  category, in six words or fewer, stated explicitly. "Self-hosted marketing
+  software." "A tool that writes and publishes your content."
+- Curiosity belongs to WHETHER IT SUITS THEM and WHY IT MATTERS NOW. It never
+  belongs to what the thing is. Withholding the category is not intrigue.
+- COUNT THE VERBS in the sentence carrying the claim. One is right. Two wants a
+  rewrite. Three is a feature list wearing a trench coat — "writes... publishes...
+  drafts..." is the single clearest sign a machine wrote the message, because
+  nobody speaks that way to a stranger.
+- Never open with a question the reader has to count, estimate or look up an
+  answer to. An opener must cost them nothing.
+
 RULES FOR THE OPENER:
 - Open with ONE genuine, specific thing from their profile — something they actually posted, their own words about their work, a real mutual connection. Reference it naturally; never quote it back verbatim in a creepy way.
 - If the profile is thin or generic, DO NOT fake familiarity — open with the substance instead.
