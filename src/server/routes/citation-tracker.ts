@@ -18,6 +18,7 @@
 import { Router } from 'express'
 import { v4 as uuid } from 'uuid'
 import db from '../db.js'
+import { isDemoClient } from '../services/demo-guard.js'
 
 // ─── Client-level router ──────────────────────────────────────────────────────
 // Mounted at /api/clients/:clientId/citation-tracker (mergeParams: true)
@@ -130,6 +131,31 @@ clientRouter.put('/', (req, res) => {
 // ─── Brand-level router ───────────────────────────────────────────────────────
 // Mounted at /api/citation-tracker
 export const brandRouter = Router({ mergeParams: true })
+
+/**
+ * Ownership check for the whole brand router.
+ *
+ * Every route below addresses a brand by an id in the PATH. Auth guards
+ * typically validate a client_id QUERY parameter, so there was nothing here to
+ * validate: a scoped session that knew or guessed a brand id could read another
+ * tenant's tracked queries, run history, spend, competitor set and reports —
+ * a client's competitive intelligence handed to whoever holds a login.
+ *
+ * Guarding the router rather than each handler closes the routes that exist
+ * today AND any added later, which matters more, because the next one will be
+ * written the same way as the last four.
+ */
+brandRouter.use('/:brandId', (req, res, next) => {
+  const auth = (req as any).auth
+  if (!auth || (auth.role !== 'operator' && auth.role !== 'demo')) return next()
+  const brandId = (req.params as any).brandId
+  const row = db.prepare('SELECT client_id FROM tracked_brands WHERE id = ?').get(brandId) as any
+  if (!row) return res.status(404).json({ error: 'Brand not found' })
+  const own = String(row.client_id || '').toLowerCase() === String(auth.client_id || '').toLowerCase()
+  if (own) return next()
+  if (auth.role === 'demo' && isDemoClient(row.client_id)) return next()
+  return res.status(403).json({ error: 'forbidden' })
+})
 
 // ── Queries ──────────────────────────────────────────────────────────────────
 

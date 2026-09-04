@@ -20,16 +20,33 @@ function toSlug(s: string): string {
 // List reports (admin view). Filter by client_id.
 router.get('/', (req, res) => {
   const { client_id } = req.query as { client_id?: string }
-  const rows = client_id
-    ? db.prepare('SELECT * FROM reports WHERE client_id = ? ORDER BY created_at DESC').all(client_id)
+  /**
+   * The unfiltered branch below exists for the owner. A scoped session that
+   * simply omitted the query parameter fell into it and could list every
+   * report on the install — titles, niches and landing-page slugs, which is
+   * more than enough to identify who else is a client here.
+   */
+  // A scoped session (operator or demo) reads only its own tenant. Taken from
+  // the SESSION, never from a query parameter, so there is nothing to omit.
+  const auth = (req as any).auth
+  const scoped = auth && (auth.role === 'operator' || auth.role === 'demo') ? auth.client_id : null
+
+  const filter = scoped || client_id
+  const rows = filter
+    ? db.prepare('SELECT * FROM reports WHERE client_id = ? ORDER BY created_at DESC').all(filter)
     : db.prepare('SELECT * FROM reports ORDER BY created_at DESC').all()
   // Don't send body_html over the wire in list view — keep it lean
   res.json(rows.map((r: any) => ({ ...r, body_html: undefined, body_md: undefined })))
 })
 
 router.get('/:id', (req, res) => {
-  const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id)
+  const row = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id) as any
   if (!row) return res.status(404).json({ error: 'Report not found' })
+  // Same rule as the list — a scoped session reads only its own tenant's report.
+  const auth = (req as any).auth
+  if (auth && (auth.role === 'operator' || auth.role === 'demo') && row.client_id !== auth.client_id) {
+    return res.status(403).json({ error: 'Forbidden' })
+  }
   res.json(row)
 })
 

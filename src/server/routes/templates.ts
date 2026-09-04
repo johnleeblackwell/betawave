@@ -27,6 +27,13 @@ function parseRow(r: any) {
 // `?client_id=none` returns only install-wide.
 router.get('/', (req, res) => {
   const { kind, client_id } = req.query as { kind?: string; client_id?: string }
+  // Install-wide templates plus your own, never another tenant's — a template
+  // name describes what a business publishes, which identifies it.
+  // A scoped session (operator or demo) reads only its own tenant. Taken from
+  // the SESSION, never from a query parameter, so there is nothing to omit.
+  const auth = (req as any).auth
+  const scoped = auth && (auth.role === 'operator' || auth.role === 'demo') ? auth.client_id : null
+
   const clauses: string[] = []
   const args: any[] = []
 

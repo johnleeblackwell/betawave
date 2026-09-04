@@ -301,6 +301,22 @@ router.get('/search', (req, res) => {
   const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '25'), 10) || 25, 1), 100)
   const like = `%${q}%`
 
+  /**
+   * A scoped session searches its OWN tenant only.
+   *
+   * Unscoped, this searched every contact on the install: anyone holding an
+   * operator or demo login could type a surname and get back real named people
+   * — role, company, profile URL, and how far along a conversation was. Those
+   * are third parties who never agreed to be shown to anybody, which makes an
+   * unfiltered search the most damaging of the scoping gaps rather than simply
+   * the widest.
+   */
+  // A scoped session (operator or demo) reads only its own tenant. Taken from
+  // the SESSION, never from a query parameter, so there is nothing to omit.
+  const auth = (req as any).auth
+  const scoped = auth && (auth.role === 'operator' || auth.role === 'demo') ? auth.client_id : null
+  const own = scoped ? ' AND o.client_id = ?' : ''
+
   const results = db.prepare(`
     SELECT c.id, c.full_name, c.role, c.email, c.linkedin_url, c.stage, c.touches,
            c.outreach_channel, c.next_action_at, c.last_reply_at, c.suppressed,
@@ -308,14 +324,14 @@ router.get('/search', (req, res) => {
     FROM dl_contacts c
     JOIN dl_organizations o ON o.id = c.organization_id
     LEFT JOIN verticals v ON v.id = o.vertical_id
-    WHERE c.full_name LIKE ? OR o.name LIKE ? OR c.email LIKE ?
+    WHERE (c.full_name LIKE ? OR o.name LIKE ? OR c.email LIKE ?)${own}
     ORDER BY
       -- Exact-ish name matches first; someone typing a name wants that person,
       -- not every company that happens to contain the string.
       CASE WHEN c.full_name LIKE ? THEN 0 ELSE 1 END,
       c.touches DESC, c.full_name
     LIMIT ?
-  `).all(like, like, like, `${q}%`, limit)
+  `).all(...(scoped ? [like, like, like, scoped, `${q}%`, limit] : [like, like, like, `${q}%`, limit]))
 
   res.json({ results })
 })

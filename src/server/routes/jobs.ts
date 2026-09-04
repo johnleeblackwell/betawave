@@ -25,7 +25,14 @@ router.get('/', (req, res) => {
   const { client_id, type, status } = req.query as Record<string, string>
   const clauses: string[] = []
   const args: any[] = []
-  if (client_id) { clauses.push('client_id = ?'); args.push(client_id) }
+  // Job rows carry params holding other tenants' object ids — which is how an
+  // id needed for an id-guessing attack elsewhere gets discovered.
+  // A scoped session (operator or demo) reads only its own tenant. Taken from
+  // the SESSION, never from a query parameter, so there is nothing to omit.
+  const auth = (req as any).auth
+  const scoped = auth && (auth.role === 'operator' || auth.role === 'demo') ? auth.client_id : null
+  if (scoped) { clauses.push('client_id = ?'); args.push(scoped) }
+  else if (client_id) { clauses.push('client_id = ?'); args.push(client_id) }
   if (type)      { clauses.push('type = ?');      args.push(type) }
   if (status)    { clauses.push('status = ?');    args.push(status) }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
