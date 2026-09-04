@@ -1513,6 +1513,7 @@ interface SearchRow {
 }
 
 function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void }) {
+  const { showToast } = useToast()
   const [q, setQ] = useState<TodayQueue | null>(null)
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -1627,24 +1628,197 @@ function TodayView({ clientId, onBack }: { clientId: string; onBack: () => void 
     </>
   )
 
-  const Row = ({ r, tier }: { r: QueueRow; tier?: string }) => (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
-      borderBottom: '1px solid var(--border-subtle)',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-          {r.full_name}
-          {tier && <span className="badge" style={{ marginLeft: 8, fontSize: '0.65rem' }}>{tier}</span>}
+  /**
+   * Draft a message, and record that you sent it — both from inside the app.
+   *
+   * WHY IT IS A PASTE BOX AND NOT A FETCHER
+   *
+   * A good opener is grounded in one true detail about the person, and the
+   * obvious way to get that detail is to read their profile automatically.
+   * Don't. Platforms detect and act on automated profile collection, and the
+   * account it costs you is the one your whole pipeline runs through.
+   *
+   * A human reading a page and pasting a paragraph makes no request to anyone's
+   * server, needs no extension installed, and cannot be fingerprinted. It is
+   * slower per contact and it is the version that still works next year.
+   *
+   * It is also more general than a scraper could be. Nothing in /api/pitch is
+   * platform-specific except the profile URL: `about`, `headline`, `company`
+   * and `recent_posts` are just text about a person, so a homepage, a bio, a
+   * conference abstract or a podcast transcript all work as the source.
+   *
+   * State lives in TodayView rather than in the panel because `Row` is defined
+   * inside this component and gets a fresh identity on every render — a panel
+   * holding its own draft would lose it whenever the queue reloaded.
+   */
+  interface DraftState {
+    loading?: boolean; pitch?: string; classification?: string
+    reason?: string; cost?: number; model?: string; error?: string
+  }
+  const [openDraft, setOpenDraft] = useState<string | null>(null)
+  const [srcText, setSrcText] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<Record<string, DraftState>>({})
+
+  const draftFor = async (r: QueueRow, format: 'dm' | 'note') => {
+    setDrafts(d => ({ ...d, [r.id]: { loading: true } }))
+    try {
+      const res = await fetch('/api/pitch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: clientId,
+          name: r.full_name,
+          current_role: r.role,
+          headline: r.role,
+          company: r.company && r.company !== 'Unknown company' ? r.company : '',
+          // Whatever the human pasted. Capped because the point is a paragraph
+          // or two, not a dossier.
+          about: (srcText[r.id] || '').slice(0, 6000),
+          linkedin_url: r.linkedin_url,
+          format,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Draft failed')
+      setDrafts(d => ({ ...d, [r.id]: {
+        pitch: data.pitch, classification: data.classification, reason: data.reason,
+        cost: data.cost_usd, model: data.model,
+      } }))
+    } catch (e: any) {
+      setDrafts(d => ({ ...d, [r.id]: { error: e?.message || 'Draft failed' } }))
+    }
+  }
+
+  /**
+   * Write-back, so the queue shortens as you work.
+   *
+   * `found: false` comes back as a 200, not an error — it means this person is
+   * not in the imported list, which is information rather than a failure.
+   */
+  const markSent = async (r: QueueRow, channel: 'connect' | 'dm' | 'email') => {
+    try {
+      const res = await fetch('/api/leads/mark-contacted', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          linkedin_url: r.linkedin_url,
+          channel,
+          message: drafts[r.id]?.pitch || '',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { showToast(data.error || 'Could not record that', 'error'); return }
+      if (!data.found) { showToast(`${r.full_name} is not in this list`, 'error'); return }
+      showToast(`${r.full_name} — ${channel} recorded`)
+      setOpenDraft(null)
+      load()
+    } catch (e: any) {
+      showToast(e?.message || 'Could not record that', 'error')
+    }
+  }
+
+  const Row = ({ r, tier }: { r: QueueRow; tier?: string }) => {
+    const d = drafts[r.id]
+    const open = openDraft === r.id
+    return (
+      <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px',
+          flexWrap: 'wrap',
+        }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+              {r.full_name}
+              {tier && <span className="badge" style={{ marginLeft: 8, fontSize: '0.65rem' }}>{tier}</span>}
+            </div>
+            <div className="text-muted" style={{ fontSize: '0.78rem' }}>
+              {r.role}{r.company && r.company !== 'Unknown company' ? ` · ${r.company}` : ''}
+            </div>
+          </div>
+          <span className="text-muted" style={{ fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{r.priority_score}</span>
+          <a className="btn btn-secondary btn-sm" href={r.linkedin_url} target="_blank" rel="noreferrer">Open ↗</a>
+          <button className={`btn btn-sm ${open ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setOpenDraft(open ? null : r.id)}>
+            ⚡ Draft
+          </button>
         </div>
-        <div className="text-muted" style={{ fontSize: '0.78rem' }}>
-          {r.role}{r.company && r.company !== 'Unknown company' ? ` · ${r.company}` : ''}
-        </div>
+
+        {open && (
+          <div style={{ padding: '4px 12px 14px', background: 'var(--bg-elevated-2)' }}>
+            <textarea
+              rows={4}
+              className="input"
+              style={{ width: '100%', fontSize: '0.82rem', fontFamily: 'inherit' }}
+              placeholder="Optional — paste their About section, a recent post, or copy from their website. Anything you'd have read before writing to them."
+              value={srcText[r.id] || ''}
+              onChange={e => setSrcText(v => ({ ...v, [r.id]: e.target.value }))}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button className="btn btn-primary btn-sm" disabled={!!d?.loading}
+                      onClick={() => draftFor(r, 'dm')}>
+                {d?.loading ? 'Drafting…' : '⚡ Draft message'}
+              </button>
+              <button className="btn btn-secondary btn-sm" disabled={!!d?.loading}
+                      onClick={() => draftFor(r, 'note')}>
+                Connection note
+              </button>
+              <span className="text-muted" style={{ fontSize: '0.72rem' }}>
+                Works with nothing pasted — a grounded draft reads better.
+              </span>
+            </div>
+
+            {d?.error && (
+              <div style={{ marginTop: 10, fontSize: '0.82rem', color: 'var(--danger)' }}>{d.error}</div>
+            )}
+
+            {/* A skip is a real answer, not a failure — the drafter classifies
+                before it writes, so an obvious non-fit does not get a pitch
+                pretending they were read properly. */}
+            {d?.classification === 'skip' && (
+              <div style={{ marginTop: 10, fontSize: '0.82rem' }}>
+                <span className="badge" style={{ background: 'rgba(249,115,22,.16)', color: '#f97316' }}>skip</span>
+                <span style={{ marginLeft: 8 }}>{d.reason || 'Not a fit for this campaign.'}</span>
+              </div>
+            )}
+
+            {!!d?.pitch && d.classification !== 'skip' && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{
+                  whiteSpace: 'pre-wrap', fontSize: '0.86rem', lineHeight: 1.5,
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)',
+                  borderRadius: 8, padding: '10px 12px',
+                }}>{d.pitch}</div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button className="btn btn-secondary btn-sm"
+                          onClick={() => { navigator.clipboard?.writeText(d.pitch || ''); showToast('Copied') }}>
+                    Copy
+                  </button>
+                  {/* Model and cost on the row, not buried in a ledger: a
+                      silent downgrade or an unexpected bill should be visible
+                      where the spending happens. */}
+                  <span className="text-muted" style={{ fontSize: '0.72rem' }}>
+                    {d.pitch.length} chars
+                    {d.classification ? ` · ${d.classification}` : ''}
+                    {typeof d.cost === 'number' ? ` · $${d.cost.toFixed(4)}` : ''}
+                    {d.model ? ` · ${d.model}` : ''}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Deliberately separate from drafting: you might send something you
+                wrote yourself, and the queue still has to shorten. */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span className="text-muted" style={{ fontSize: '0.72rem' }}>Once you've sent it:</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => markSent(r, 'dm')}>✅ Message sent</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => markSent(r, 'connect')}>✅ Connect sent</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => markSent(r, 'email')}>✅ Email sent</button>
+            </div>
+          </div>
+        )}
       </div>
-      <span className="text-muted" style={{ fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{r.priority_score}</span>
-      <a className="btn btn-secondary btn-sm" href={r.linkedin_url} target="_blank" rel="noreferrer">Open ↗</a>
-    </div>
-  )
+    )
+  }
 
   if (loading) return <div className="page-content"><span className="loading" /> Loading today's queue…</div>
 
